@@ -48,7 +48,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branlly.pocket.data.SavedApplicationShortcut
 import com.branlly.pocket.data.SavedRouteShortcut
+import com.branlly.pocket.data.SavedShortcut
 import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.model.ActionCategory
@@ -109,8 +111,29 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
             }
         }
         item {
-            Button(onClick = viewModel::useDepartureBlueprint, modifier = Modifier.fillMaxWidth()) {
-                Text("＋ Nouvel itinéraire")
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(onClick = viewModel::useDepartureBlueprint, modifier = Modifier.weight(1f)) {
+                    Text("＋ Itinéraire")
+                }
+                OutlinedButton(onClick = viewModel::useMusicBlueprint, modifier = Modifier.weight(1f)) {
+                    Text("＋ Musique")
+                }
+            }
+        }
+        item {
+            VoiceCommandControl { command ->
+                val saved = when (command) {
+                    LocalVoiceCommand.NAVIGATION -> state.savedShortcuts.filterIsInstance<SavedRouteShortcut>().firstOrNull()
+                    LocalVoiceCommand.MUSIC -> state.savedShortcuts.filterIsInstance<SavedApplicationShortcut>().firstOrNull()
+                }
+                if (saved != null) {
+                    launchSavedShortcut(context, saved)
+                } else {
+                    when (command) {
+                        LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
+                        LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+                    }
+                }
             }
         }
         if (state.savedShortcuts.isEmpty()) {
@@ -118,25 +141,16 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Aucun raccourci", fontWeight = FontWeight.Bold)
-                        Text("Créez un itinéraire, choisissez votre destination, puis enregistrez-le.")
+                        Text("Créez un itinéraire ou choisissez une application musicale.")
                     }
                 }
             }
         } else {
             item { Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            items(state.savedShortcuts, key = SavedRouteShortcut::id) { shortcut ->
+            items(state.savedShortcuts, key = SavedShortcut::id) { shortcut ->
                 SavedShortcutCard(
                     shortcut = shortcut,
-                    onLaunch = {
-                        val action = ShortcutAction.OpenRoute(
-                            navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
-                            destination = InputValue.Fixed(shortcut.destination),
-                            transportMode = shortcut.transportMode,
-                        )
-                        routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))?.let { message ->
-                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
-                        }
-                    },
+                    onLaunch = { launchSavedShortcut(context, shortcut) },
                     onEdit = { viewModel.editSaved(shortcut) },
                     onDelete = { viewModel.deleteSaved(shortcut.id) },
                 )
@@ -147,7 +161,7 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
 
 @Composable
 private fun SavedShortcutCard(
-    shortcut: SavedRouteShortcut,
+    shortcut: SavedShortcut,
     onLaunch: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -160,7 +174,13 @@ private fun SavedShortcutCard(
     ) {
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text(shortcut.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(shortcut.destination, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(
+                when (shortcut) {
+                    is SavedRouteShortcut -> shortcut.destination
+                    is SavedApplicationShortcut -> "Ouvrir l’application musicale"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
             Text("Toucher pour lancer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
                 TextButton(onClick = onEdit) { Text("Modifier") }
@@ -512,6 +532,23 @@ private fun PrivacyNotice() {
             style = MaterialTheme.typography.bodySmall,
         )
     }
+}
+
+private fun launchSavedShortcut(context: Context, shortcut: SavedShortcut) {
+    val message = when (shortcut) {
+        is SavedRouteShortcut -> {
+            val action = ShortcutAction.OpenRoute(
+                navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
+                destination = InputValue.Fixed(shortcut.destination),
+                transportMode = shortcut.transportMode,
+            )
+            routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+        }
+        is SavedApplicationShortcut -> applicationLaunchMessage(
+            ApplicationLauncher(context.applicationContext).launch(shortcut.packageName),
+        )
+    }
+    if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 private fun testShortcut(context: Context, shortcut: ShortcutDefinition) {

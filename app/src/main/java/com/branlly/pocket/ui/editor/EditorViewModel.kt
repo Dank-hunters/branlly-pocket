@@ -5,14 +5,17 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
+import com.branlly.pocket.data.SavedApplicationShortcut
 import com.branlly.pocket.data.SavedRouteShortcut
-import com.branlly.pocket.data.SavedRouteShortcutStore
+import com.branlly.pocket.data.SavedShortcut
+import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.catalog.LocalRecommendations
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ConnectionEvent
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAction
+import com.branlly.pocket.domain.model.ShortcutId
 import com.branlly.pocket.domain.model.ShortcutCategory
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
@@ -25,7 +28,7 @@ import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 
 class EditorViewModel(application: Application) : AndroidViewModel(application) {
-    private val store = SavedRouteShortcutStore(application)
+    private val store = SavedShortcutStore(application)
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
@@ -160,46 +163,38 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun saveDraft() {
         val draft = _state.value.draft ?: return
-        val route = draft.nodes.asSequence().filter(ActionNode::enabled).map(ActionNode::action)
-            .filterIsInstance<ShortcutAction.OpenRoute>().firstOrNull()
-        val packageName = (route?.navigationPackage as? InputValue.Fixed<String>)?.value
-        val destination = (route?.destination as? InputValue.Fixed<String>)?.value?.trim()
-        if (draft.name.isBlank() || route == null || packageName.isNullOrBlank() || destination.isNullOrBlank()) {
-            _state.update { it.copy(message = "Configurez un nom, une application et une destination.") }
+        val actions = draft.nodes.asSequence().filter(ActionNode::enabled).map(ActionNode::action).toList()
+        val route = actions.filterIsInstance<ShortcutAction.OpenRoute>().firstOrNull()
+        val application = actions.filterIsInstance<ShortcutAction.OpenApplication>().firstOrNull()
+        val saved = route?.toSavedShortcut(draft) ?: application?.toSavedShortcut(draft)
+        if (saved == null || draft.name.isBlank()) {
+            _state.update { it.copy(message = "Terminez la configuration avant d’enregistrer.") }
             return
         }
         viewModelScope.launch {
-            store.save(
-                SavedRouteShortcut(
-                    id = draft.id.value,
-                    name = draft.name.trim(),
-                    navigationPackage = packageName,
-                    destination = destination,
-                    transportMode = route.transportMode,
-                ),
-            )
+            store.save(saved)
             _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts, message = "Raccourci enregistré.") }
         }
     }
 
-    fun editSaved(shortcut: SavedRouteShortcut) {
+    fun editSaved(shortcut: SavedShortcut) {
+        val action = when (shortcut) {
+            is SavedRouteShortcut -> ShortcutAction.OpenRoute(
+                navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
+                destination = InputValue.Fixed(shortcut.destination),
+                transportMode = shortcut.transportMode,
+            )
+            is SavedApplicationShortcut -> ShortcutAction.OpenApplication(InputValue.Fixed(shortcut.packageName))
+        }
         _state.update {
             it.copy(
                 screen = Screen.EDITOR,
                 draft = ShortcutDefinition(
-                    id = com.branlly.pocket.domain.model.ShortcutId(shortcut.id),
+                    id = ShortcutId(shortcut.id),
                     name = shortcut.name,
-                    category = ShortcutCategory.TRAVEL,
+                    category = if (shortcut is SavedRouteShortcut) ShortcutCategory.TRAVEL else ShortcutCategory.WELLBEING,
                     trigger = Trigger.ManualButton,
-                    nodes = listOf(
-                        ActionNode(
-                            action = ShortcutAction.OpenRoute(
-                                navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
-                                destination = InputValue.Fixed(shortcut.destination),
-                                transportMode = shortcut.transportMode,
-                            ),
-                        ),
-                    ),
+                    nodes = listOf(ActionNode(action = action)),
                 ),
                 message = null,
             )
@@ -238,7 +233,7 @@ data class EditorUiState(
     val insertionIndex: Int = 0,
     val selectedNodeId: NodeId? = null,
     val triggerConfigurationVisible: Boolean = false,
-    val savedShortcuts: List<SavedRouteShortcut> = emptyList(),
+    val savedShortcuts: List<SavedShortcut> = emptyList(),
     val message: String? = null,
 ) {
     val selectedNode: ActionNode?
@@ -254,6 +249,17 @@ data class EditorUiState(
 }
 
 enum class Screen { HOME, START, GUIDED_TRIGGER, BLUEPRINTS, EDITOR }
+
+private fun ShortcutAction.OpenRoute.toSavedShortcut(draft: ShortcutDefinition): SavedRouteShortcut? {
+    val packageName = (navigationPackage as? InputValue.Fixed<String>)?.value?.takeIf(String::isNotBlank) ?: return null
+    val fixedDestination = (destination as? InputValue.Fixed<String>)?.value?.trim()?.takeIf(String::isNotBlank) ?: return null
+    return SavedRouteShortcut(draft.id.value, draft.name.trim(), packageName, fixedDestination, transportMode)
+}
+
+private fun ShortcutAction.OpenApplication.toSavedShortcut(draft: ShortcutDefinition): SavedApplicationShortcut? {
+    val packageName = (this.packageName as? InputValue.Fixed<String>)?.value?.takeIf(String::isNotBlank) ?: return null
+    return SavedApplicationShortcut(draft.id.value, draft.name.trim(), packageName)
+}
 
 private fun Trigger.hasConfiguration(): Boolean = when (this) {
     Trigger.ManualButton, Trigger.Widget, Trigger.QuickTile -> false
