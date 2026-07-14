@@ -46,17 +46,23 @@ import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ChargerEvent
+import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NumericComparison
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
+import com.branlly.pocket.domain.voice.LocalVoiceCommand
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
+import com.branlly.pocket.platform.android.ApplicationLaunchResult
+import com.branlly.pocket.platform.android.ApplicationLauncher
 import com.branlly.pocket.platform.android.RouteLaunchResult
 import com.branlly.pocket.platform.android.RouteLauncher
 import com.branlly.pocket.ui.editor.Screen
+import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
+import com.branlly.pocket.ui.voice.VoiceCommandControl
 import java.time.LocalTime
 
 @Composable
@@ -82,6 +88,12 @@ private fun StartScreen(viewModel: EditorViewModel) {
         )
         MethodCard("", "Utiliser un blueprint", "Partir d’un modèle prêt à personnaliser.", false, viewModel::showBlueprints)
         MethodCard("AVANCÉ", "Création libre", "Construire directement une séquence visuelle.", false, viewModel::startFree)
+        VoiceCommandControl { command ->
+            when (command) {
+                LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
+                LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+            }
+        }
         PrivacyNotice()
     }
 }
@@ -156,7 +168,7 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
                     singleLine = true,
                 )
             }
-            item { TriggerCard(draft) }
+            item { TriggerCard(draft, viewModel::showTriggerConfiguration) }
             item { InsertButton { viewModel.showLibrary(0) } }
             itemsIndexed(draft.nodes, key = { _, node -> node.id.value }) { index, node ->
                 ActionCard(
@@ -205,6 +217,13 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
             ActionLibrary(draft.trigger, viewModel::addAction)
         }
     }
+    if (state.triggerConfigurationVisible) {
+        TriggerConfigurationSheet(
+            trigger = draft.trigger,
+            onTriggerChange = viewModel::updateTrigger,
+            onDismiss = viewModel::hideTriggerConfiguration,
+        )
+    }
     state.selectedNode?.let { node ->
         ActionConfigurationSheet(
             node = node,
@@ -215,8 +234,11 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
 }
 
 @Composable
-private fun TriggerCard(draft: ShortcutDefinition) {
-    Card(colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer)) {
+private fun TriggerCard(draft: ShortcutDefinition, onClick: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+    ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text("DÉCLENCHEUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
             Text(draft.trigger.summary(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
@@ -369,26 +391,37 @@ private fun PrivacyNotice() {
 }
 
 private fun testShortcut(context: Context, shortcut: ShortcutDefinition) {
-    val route = shortcut.nodes
+    val action = shortcut.nodes
         .asSequence()
         .filter(ActionNode::enabled)
         .map(ActionNode::action)
-        .filterIsInstance<ShortcutAction.OpenRoute>()
-        .firstOrNull()
-    if (route == null) {
-        Toast.makeText(context, "Aucune action testable pour le moment.", Toast.LENGTH_SHORT).show()
-        return
+        .firstOrNull { it is ShortcutAction.OpenRoute || it is ShortcutAction.OpenApplication }
+    val message = when (action) {
+        is ShortcutAction.OpenRoute -> routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+        is ShortcutAction.OpenApplication -> {
+            val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
+            applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
+        }
+        else -> "Aucune action testable pour le moment."
     }
+    if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+}
 
-    val message = when (RouteLauncher(context.applicationContext).launch(route)) {
-        RouteLaunchResult.Launched -> return
-        RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
-        RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
-        RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
-        RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
-        RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
-    }
-    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+private fun routeLaunchMessage(result: RouteLaunchResult): String? = when (result) {
+    RouteLaunchResult.Launched -> null
+    RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
+    RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
+    RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
+    RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
+    RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
+}
+
+private fun applicationLaunchMessage(result: ApplicationLaunchResult): String? = when (result) {
+    ApplicationLaunchResult.Launched -> null
+    ApplicationLaunchResult.RuntimeValueRequired -> "Choisissez une application avant de tester."
+    ApplicationLaunchResult.InvalidPackage -> "L’application sélectionnée n’est pas valide."
+    ApplicationLaunchResult.MissingApplication -> "L’application sélectionnée n’est plus installée."
+    ApplicationLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’application."
 }
 
 private fun ActionCategory.label(): String = when (this) {

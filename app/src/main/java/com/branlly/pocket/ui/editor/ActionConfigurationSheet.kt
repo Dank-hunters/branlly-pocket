@@ -1,11 +1,14 @@
 package com.branlly.pocket.ui.editor
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -15,9 +18,15 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -31,8 +40,12 @@ import com.branlly.pocket.domain.model.SoundMode
 import com.branlly.pocket.domain.model.TransportMode
 import com.branlly.pocket.domain.model.VolumeStream
 import com.branlly.pocket.domain.model.summary
+import com.branlly.pocket.platform.android.InstalledApplication
+import com.branlly.pocket.platform.android.InstalledApplicationCatalog
 import com.branlly.pocket.platform.android.NavigationApps
 import com.branlly.pocket.platform.android.RouteLauncher
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +69,7 @@ fun ActionConfigurationSheet(
             }
             HorizontalDivider()
             when (val action = node.action) {
+                is ShortcutAction.OpenApplication -> ApplicationForm(action, onActionChange)
                 is ShortcutAction.SetVolume -> VolumeForm(action, onActionChange)
                 is ShortcutAction.SetBrightness -> BrightnessForm(action, onActionChange)
                 is ShortcutAction.Wait -> WaitForm(action, onActionChange)
@@ -70,6 +84,77 @@ fun ActionConfigurationSheet(
         }
     }
 }
+
+@Composable
+private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (ShortcutAction) -> Unit) {
+    val context = LocalContext.current
+    val applications by produceState<List<InstalledApplication>>(initialValue = emptyList(), context) {
+        value = withContext(Dispatchers.IO) {
+            InstalledApplicationCatalog(context.applicationContext).load()
+        }
+    }
+    var query by remember { mutableStateOf("") }
+    val selectedPackage = (action.packageName as? InputValue.Fixed<String>)?.value
+    val mode = if (action.packageName is InputValue.Fixed) ValueMode.FIXED else ValueMode.ASK_AT_RUNTIME
+    val filtered = remember(applications, query) {
+        val normalized = query.trim()
+        if (normalized.isEmpty()) applications else applications.filter {
+            it.label.contains(normalized, ignoreCase = true)
+        }
+    }
+
+    ChoiceRow(
+        label = "Application",
+        choices = ValueMode.entries,
+        selected = mode,
+        text = { if (it == ValueMode.FIXED) "Toujours utiliser" else "Demander au lancement" },
+        onSelected = { selectedMode ->
+            val value = if (selectedMode == ValueMode.FIXED) {
+                selectedPackage?.let(InputValue::Fixed) ?: InputValue.AskAtRuntime
+            } else {
+                InputValue.AskAtRuntime
+            }
+            onChange(action.copy(packageName = value))
+        },
+    )
+    if (mode == ValueMode.FIXED || selectedPackage == null) {
+        OutlinedTextField(
+            value = query,
+            onValueChange = { query = it.take(MAX_SEARCH_LENGTH) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Rechercher une application") },
+            singleLine = true,
+        )
+        if (applications.isEmpty()) {
+            Text("Chargement des applications…", style = MaterialTheme.typography.bodySmall)
+        } else if (filtered.isEmpty()) {
+            Text("Aucune application correspondante.", style = MaterialTheme.typography.bodySmall)
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                items(filtered, key = InstalledApplication::packageName) { application ->
+                    Surface(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { onChange(action.copy(packageName = InputValue.Fixed(application.packageName))) },
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                        color = if (application.packageName == selectedPackage) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    ) {
+                        Text(application.label, modifier = Modifier.padding(14.dp), fontWeight = FontWeight.Medium)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private const val MAX_SEARCH_LENGTH = 80
 
 @Composable
 private fun VolumeForm(action: ShortcutAction.SetVolume, onChange: (ShortcutAction) -> Unit) {

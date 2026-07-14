@@ -24,7 +24,19 @@ class EditorViewModel : ViewModel() {
 
     fun startFree() = openEditor(Trigger.ManualButton)
 
-    fun startGuided(trigger: Trigger) = openEditor(trigger)
+    fun startGuided(trigger: Trigger) = openEditor(trigger, configureTrigger = trigger.hasConfiguration())
+
+    fun useMusicBlueprint() {
+        _state.value = EditorUiState(
+            screen = Screen.EDITOR,
+            draft = ShortcutDefinition(
+                name = "Mode musique",
+                category = ShortcutCategory.WELLBEING,
+                trigger = Trigger.ManualButton,
+                nodes = listOf(ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))),
+            ),
+        )
+    }
 
     fun useDepartureBlueprint() {
         _state.value = EditorUiState(
@@ -66,13 +78,25 @@ class EditorViewModel : ViewModel() {
     fun showGuidedTriggers() = _state.update { it.copy(screen = Screen.GUIDED_TRIGGER) }
     fun showBlueprints() = _state.update { it.copy(screen = Screen.BLUEPRINTS) }
     fun showLibrary(index: Int) = _state.update {
-        it.copy(insertionIndex = index, libraryVisible = true, selectedNodeId = null)
+        it.copy(
+            insertionIndex = index,
+            libraryVisible = true,
+            selectedNodeId = null,
+            triggerConfigurationVisible = false,
+        )
     }
     fun hideLibrary() = _state.update { it.copy(libraryVisible = false) }
     fun showConfiguration(nodeId: NodeId) = _state.update {
         it.copy(selectedNodeId = nodeId, libraryVisible = false)
     }
     fun hideConfiguration() = _state.update { it.copy(selectedNodeId = null) }
+    fun showTriggerConfiguration() = _state.update {
+        it.copy(triggerConfigurationVisible = true, libraryVisible = false, selectedNodeId = null)
+    }
+    fun hideTriggerConfiguration() = _state.update { it.copy(triggerConfigurationVisible = false) }
+    fun updateTrigger(trigger: Trigger) = _state.update { state ->
+        state.copy(draft = state.draft?.copy(trigger = trigger))
+    }
 
     fun updateAction(nodeId: NodeId, action: ShortcutAction) = updateNodes { nodes ->
         nodes.map { if (it.id == nodeId) it.copy(action = action) else it }
@@ -117,10 +141,11 @@ class EditorViewModel : ViewModel() {
         }
     }
 
-    private fun openEditor(trigger: Trigger) {
+    private fun openEditor(trigger: Trigger, configureTrigger: Boolean = false) {
         _state.value = EditorUiState(
             screen = Screen.EDITOR,
             draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList()),
+            triggerConfigurationVisible = configureTrigger,
         )
     }
 
@@ -135,6 +160,7 @@ data class EditorUiState(
     val libraryVisible: Boolean = false,
     val insertionIndex: Int = 0,
     val selectedNodeId: NodeId? = null,
+    val triggerConfigurationVisible: Boolean = false,
 ) {
     val selectedNode: ActionNode?
         get() = draft?.nodes?.find { it.id == selectedNodeId }
@@ -149,3 +175,8 @@ data class EditorUiState(
 }
 
 enum class Screen { START, GUIDED_TRIGGER, BLUEPRINTS, EDITOR }
+
+private fun Trigger.hasConfiguration(): Boolean = when (this) {
+    Trigger.ManualButton, Trigger.Widget, Trigger.QuickTile -> false
+    else -> true
+}
