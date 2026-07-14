@@ -34,7 +34,12 @@ class ShortcutValidator(
         shortcut.nodes.forEach { node ->
             when (val action = node.action) {
                 is ShortcutAction.OpenApplication -> checkPackage(action.packageName, node.id)
-                is ShortcutAction.OpenRoute -> checkPackage(action.navigationPackage, node.id)
+                is ShortcutAction.OpenRoute -> {
+                    checkPackage(action.navigationPackage, node.id)
+                    if (action.destination is InputValue.Fixed && action.destination.value.isBlank()) {
+                        error("missing_destination", "Indiquez une destination.", node.id)
+                    }
+                }
                 is ShortcutAction.OpenWebsite -> if (action.url is InputValue.Fixed && !isSafeHttps(action.url.value)) {
                     error("unsafe_url", "Seules les adresses HTTPS valides sont autorisées.", node.id)
                 }

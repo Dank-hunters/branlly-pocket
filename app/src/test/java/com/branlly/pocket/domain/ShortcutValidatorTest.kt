@@ -29,6 +29,18 @@ class ShortcutValidatorTest {
     }
 
     @Test
+    fun `rejects a route without destination`() {
+        val action = ShortcutAction.OpenRoute(
+            navigationPackage = InputValue.AskAtRuntime,
+            destination = InputValue.Fixed("   "),
+        )
+
+        val result = validator.validate(shortcutWith(action))
+
+        assertTrue(result.any { it.code == "missing_destination" })
+    }
+
+    @Test
     fun `accepts a normal HTTPS URL`() {
         val result = validator.validate(shortcutWith(ShortcutAction.OpenWebsite(InputValue.Fixed("https://example.org/path"))))
         assertEquals(emptyList<com.branlly.pocket.domain.validation.ValidationIssue>(), result)

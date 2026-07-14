@@ -1,5 +1,7 @@
 package com.branlly.pocket.ui
 
+import android.content.Context
+import android.widget.Toast
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -35,6 +37,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -44,12 +47,15 @@ import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.NumericComparison
+import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
+import com.branlly.pocket.platform.android.RouteLaunchResult
+import com.branlly.pocket.platform.android.RouteLauncher
 import com.branlly.pocket.ui.editor.Screen
 import java.time.LocalTime
 
@@ -110,7 +116,14 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
         subtitle = "Chaque élément restera entièrement modifiable.",
         onBack = viewModel::showStart,
     ) {
-        MethodCard("TRAJET", "Mode voiture", "Bluetooth → volume → musique → navigation", true, viewModel::useCarBlueprint)
+        MethodCard(
+            "PRÊT À TESTER",
+            "Je vais partir",
+            "Choisir Waze ou Google Maps et une destination.",
+            true,
+            viewModel::useDepartureBlueprint,
+        )
+        MethodCard("TRAJET", "Mode voiture", "Bluetooth → volume → musique → navigation", false, viewModel::useCarBlueprint)
         listOf("Départ au travail", "Mode nuit", "Sport", "Réunion", "Batterie faible", "Routine du matin").forEach { title ->
             MethodCard("BIENTÔT", title, "Blueprint local en préparation", false, {})
         }
@@ -121,6 +134,7 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
 @Composable
 private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
     val draft = state.draft ?: return
+    val context = LocalContext.current
     Box(Modifier.fillMaxSize()) {
         LazyColumn(
             modifier = Modifier.fillMaxSize().statusBarsPadding(),
@@ -181,7 +195,7 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
                 modifier = Modifier.navigationBarsPadding().padding(16.dp),
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                OutlinedButton(onClick = {}, modifier = Modifier.weight(1f)) { Text("Tester") }
+                OutlinedButton(onClick = { testShortcut(context, draft) }, modifier = Modifier.weight(1f)) { Text("Tester") }
                 Button(onClick = {}, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("Aperçu") }
             }
         }
@@ -352,6 +366,29 @@ private fun PrivacyNotice() {
             style = MaterialTheme.typography.bodySmall,
         )
     }
+}
+
+private fun testShortcut(context: Context, shortcut: ShortcutDefinition) {
+    val route = shortcut.nodes
+        .asSequence()
+        .filter(ActionNode::enabled)
+        .map(ActionNode::action)
+        .filterIsInstance<ShortcutAction.OpenRoute>()
+        .firstOrNull()
+    if (route == null) {
+        Toast.makeText(context, "Aucune action testable pour le moment.", Toast.LENGTH_SHORT).show()
+        return
+    }
+
+    val message = when (RouteLauncher(context.applicationContext).launch(route)) {
+        RouteLaunchResult.Launched -> return
+        RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
+        RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
+        RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
+        RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
+        RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
+    }
+    Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
 private fun ActionCategory.label(): String = when (this) {

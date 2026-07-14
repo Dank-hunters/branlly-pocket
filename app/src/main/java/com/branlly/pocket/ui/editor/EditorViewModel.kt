@@ -26,6 +26,25 @@ class EditorViewModel : ViewModel() {
 
     fun startGuided(trigger: Trigger) = openEditor(trigger)
 
+    fun useDepartureBlueprint() {
+        _state.value = EditorUiState(
+            screen = Screen.EDITOR,
+            draft = ShortcutDefinition(
+                name = "Je vais partir",
+                category = ShortcutCategory.TRAVEL,
+                trigger = Trigger.ManualButton,
+                nodes = listOf(
+                    ActionNode(
+                        action = ShortcutAction.OpenRoute(
+                            navigationPackage = InputValue.Fixed("com.google.android.apps.maps"),
+                            destination = InputValue.Fixed(""),
+                        ),
+                    ),
+                ),
+            ),
+        )
+    }
+
     fun useCarBlueprint() {
         _state.value = EditorUiState(
             screen = Screen.EDITOR,

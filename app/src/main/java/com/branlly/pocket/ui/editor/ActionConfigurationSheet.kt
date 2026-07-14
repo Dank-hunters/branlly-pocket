@@ -13,12 +13,14 @@ import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.branlly.pocket.domain.model.ActionNode
@@ -26,8 +28,11 @@ import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.SettingsPanel
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.SoundMode
+import com.branlly.pocket.domain.model.TransportMode
 import com.branlly.pocket.domain.model.VolumeStream
 import com.branlly.pocket.domain.model.summary
+import com.branlly.pocket.platform.android.NavigationApps
+import com.branlly.pocket.platform.android.RouteLauncher
 import kotlin.math.roundToInt
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -56,6 +61,7 @@ fun ActionConfigurationSheet(
                 is ShortcutAction.Wait -> WaitForm(action, onActionChange)
                 is ShortcutAction.SetSoundMode -> SoundModeForm(action, onActionChange)
                 is ShortcutAction.OpenSettings -> SettingsForm(action, onActionChange)
+                is ShortcutAction.OpenRoute -> RouteForm(action, onActionChange)
                 else -> Text(
                     "Le formulaire détaillé de cette action sera ajouté dans la prochaine étape.",
                     style = MaterialTheme.typography.bodyMedium,
@@ -168,11 +174,75 @@ private fun SettingsForm(action: ShortcutAction.OpenSettings, onChange: (Shortcu
 }
 
 @Composable
+private fun RouteForm(action: ShortcutAction.OpenRoute, onChange: (ShortcutAction) -> Unit) {
+    val context = LocalContext.current
+    val launcher = RouteLauncher(context)
+    val selectedPackage = (action.navigationPackage as? InputValue.Fixed<String>)?.value
+        ?: NavigationApps.GOOGLE_MAPS
+    val destination = (action.destination as? InputValue.Fixed<String>)?.value.orEmpty()
+    val destinationMode = if (action.destination is InputValue.Fixed) ValueMode.FIXED else ValueMode.ASK_AT_RUNTIME
+
+    ChoiceRow(
+        label = "Application de navigation",
+        choices = NavigationApps.supportedPackages.toList(),
+        selected = selectedPackage,
+        text = { packageName ->
+            val name = if (packageName == NavigationApps.WAZE) "Waze" else "Google Maps"
+            if (launcher.isInstalled(packageName)) name else "$name · non installée"
+        },
+        enabled = launcher::isInstalled,
+        onSelected = { packageName ->
+            onChange(
+                action.copy(
+                    navigationPackage = InputValue.Fixed(packageName),
+                    transportMode = if (packageName == NavigationApps.WAZE) TransportMode.DRIVING else action.transportMode,
+                ),
+            )
+        },
+    )
+    ChoiceRow(
+        label = "Destination",
+        choices = ValueMode.entries,
+        selected = destinationMode,
+        text = { if (it == ValueMode.FIXED) "Toujours utiliser" else "Demander au lancement" },
+        onSelected = { mode ->
+            onChange(action.copy(destination = if (mode == ValueMode.FIXED) InputValue.Fixed(destination) else InputValue.AskAtRuntime))
+        },
+    )
+    if (action.destination is InputValue.Fixed) {
+        OutlinedTextField(
+            value = destination,
+            onValueChange = { value ->
+                if (value.length <= NavigationApps.MAX_DESTINATION_LENGTH) {
+                    onChange(action.copy(destination = InputValue.Fixed(value)))
+                }
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Adresse ou lieu") },
+            supportingText = { Text("Exemple : Gare de Lyon, Paris") },
+            singleLine = true,
+        )
+    }
+    if (selectedPackage == NavigationApps.GOOGLE_MAPS) {
+        ChoiceRow(
+            label = "Mode de transport",
+            choices = TransportMode.entries,
+            selected = action.transportMode,
+            text = { it.label() },
+            onSelected = { onChange(action.copy(transportMode = it)) },
+        )
+    } else {
+        Text("Waze utilisera le mode voiture.", style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
 private fun <T> ChoiceRow(
     label: String?,
     choices: List<T>,
     selected: T,
     text: (T) -> String,
+    enabled: (T) -> Boolean = { true },
     onSelected: (T) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -182,6 +252,7 @@ private fun <T> ChoiceRow(
                 FilterChip(
                     selected = choice == selected,
                     onClick = { onSelected(choice) },
+                    enabled = enabled(choice),
                     label = { Text(text(choice)) },
                 )
             }
@@ -198,6 +269,7 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 }
 
 private enum class PercentageMode { FIXED, ASK_AT_RUNTIME }
+private enum class ValueMode { FIXED, ASK_AT_RUNTIME }
 
 private fun VolumeStream.label() = when (this) {
     VolumeStream.MEDIA -> "Multimédia"
@@ -210,6 +282,13 @@ private fun SoundMode.label() = when (this) {
     SoundMode.VIBRATE -> "Vibreur"
     SoundMode.SILENT -> "Silencieux"
     SoundMode.DO_NOT_DISTURB -> "Ne pas déranger"
+}
+
+private fun TransportMode.label() = when (this) {
+    TransportMode.DRIVING -> "Voiture"
+    TransportMode.WALKING -> "À pied"
+    TransportMode.BICYCLING -> "Vélo"
+    TransportMode.TRANSIT -> "Transports"
 }
 
 private fun SettingsPanel.label() = when (this) {
