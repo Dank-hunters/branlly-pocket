@@ -46,8 +46,18 @@ class EditorViewModel : ViewModel() {
     fun showStart() = _state.update { EditorUiState() }
     fun showGuidedTriggers() = _state.update { it.copy(screen = Screen.GUIDED_TRIGGER) }
     fun showBlueprints() = _state.update { it.copy(screen = Screen.BLUEPRINTS) }
-    fun showLibrary(index: Int) = _state.update { it.copy(insertionIndex = index, libraryVisible = true) }
+    fun showLibrary(index: Int) = _state.update {
+        it.copy(insertionIndex = index, libraryVisible = true, selectedNodeId = null)
+    }
     fun hideLibrary() = _state.update { it.copy(libraryVisible = false) }
+    fun showConfiguration(nodeId: NodeId) = _state.update {
+        it.copy(selectedNodeId = nodeId, libraryVisible = false)
+    }
+    fun hideConfiguration() = _state.update { it.copy(selectedNodeId = null) }
+
+    fun updateAction(nodeId: NodeId, action: ShortcutAction) = updateNodes { nodes ->
+        nodes.map { if (it.id == nodeId) it.copy(action = action) else it }
+    }
 
     fun addAction(descriptor: ActionDescriptor) {
         _state.update { current ->
@@ -58,7 +68,12 @@ class EditorViewModel : ViewModel() {
         }
     }
 
-    fun remove(nodeId: NodeId) = updateNodes { nodes -> nodes.filterNot { it.id == nodeId } }
+    fun remove(nodeId: NodeId) {
+        updateNodes { nodes -> nodes.filterNot { it.id == nodeId } }
+        _state.update { state ->
+            if (state.selectedNodeId == nodeId) state.copy(selectedNodeId = null) else state
+        }
+    }
 
     fun duplicate(nodeId: NodeId) = updateNodes { nodes ->
         val index = nodes.indexOfFirst { it.id == nodeId }
@@ -100,7 +115,11 @@ data class EditorUiState(
     val draft: ShortcutDefinition? = null,
     val libraryVisible: Boolean = false,
     val insertionIndex: Int = 0,
+    val selectedNodeId: NodeId? = null,
 ) {
+    val selectedNode: ActionNode?
+        get() = draft?.nodes?.find { it.id == selectedNodeId }
+
     val suggestions: List<ActionDescriptor>
         get() {
             val current = draft ?: return emptyList()

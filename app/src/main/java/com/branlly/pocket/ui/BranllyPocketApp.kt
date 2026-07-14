@@ -47,6 +47,7 @@ import com.branlly.pocket.domain.model.NumericComparison
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
+import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
 import com.branlly.pocket.ui.editor.Screen
@@ -150,6 +151,7 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
                     canMoveDown = index < draft.nodes.lastIndex,
                     onMoveUp = { viewModel.move(node.id, -1) },
                     onMoveDown = { viewModel.move(node.id, 1) },
+                    onEdit = { viewModel.showConfiguration(node.id) },
                     onToggle = { viewModel.toggle(node.id) },
                     onDuplicate = { viewModel.duplicate(node.id) },
                     onDelete = { viewModel.remove(node.id) },
@@ -189,6 +191,13 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
             ActionLibrary(draft.trigger, viewModel::addAction)
         }
     }
+    state.selectedNode?.let { node ->
+        ActionConfigurationSheet(
+            node = node,
+            onActionChange = { viewModel.updateAction(node.id, it) },
+            onDismiss = viewModel::hideConfiguration,
+        )
+    }
 }
 
 @Composable
@@ -209,6 +218,7 @@ private fun ActionCard(
     canMoveDown: Boolean,
     onMoveUp: () -> Unit,
     onMoveDown: () -> Unit,
+    onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDuplicate: () -> Unit,
     onDelete: () -> Unit,
@@ -228,11 +238,14 @@ private fun ActionCard(
                 Switch(checked = node.enabled, onCheckedChange = { onToggle() })
             }
             HorizontalDivider(Modifier.padding(vertical = 10.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(2.dp), verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onMoveUp, enabled = canMoveUp) { Text("↑") }
                 TextButton(onClick = onMoveDown, enabled = canMoveDown) { Text("↓") }
-                TextButton(onClick = onDuplicate) { Text("Dupliquer") }
+                Button(onClick = onEdit) { Text("Modifier") }
                 Spacer(Modifier.weight(1f))
+            }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onDuplicate) { Text("Dupliquer") }
                 TextButton(onClick = onDelete) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
             }
         }
