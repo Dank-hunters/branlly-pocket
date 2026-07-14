@@ -26,7 +26,11 @@ class OnDeviceVoiceRecognizer(private val context: Context) {
         SpeechRecognizer.isOnDeviceRecognitionAvailable(context)
 
     fun start(onResult: (VoiceRecognitionResult) -> Unit) {
-        if (!isAvailable()) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.S) {
+            onResult(VoiceRecognitionResult.Unavailable)
+            return
+        }
+        if (!SpeechRecognizer.isOnDeviceRecognitionAvailable(context)) {
             onResult(VoiceRecognitionResult.Unavailable)
             return
         }
