@@ -20,6 +20,7 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -37,6 +38,9 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -44,6 +48,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.branlly.pocket.data.SavedRouteShortcut
 import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.model.ActionCategory
@@ -72,10 +77,109 @@ import java.time.LocalTime
 fun BranllyPocketApp(viewModel: EditorViewModel = viewModel()) {
     val state by viewModel.state.collectAsState()
     when (state.screen) {
+        Screen.HOME -> HomeScreen(state, viewModel)
         Screen.START -> StartScreen(viewModel)
         Screen.GUIDED_TRIGGER -> TriggerScreen(viewModel)
         Screen.BLUEPRINTS -> BlueprintScreen(viewModel)
         Screen.EDITOR -> EditorScreen(state, viewModel)
+    }
+}
+
+@Composable
+private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
+    val context = LocalContext.current
+    LazyColumn(
+        modifier = Modifier.fillMaxSize().statusBarsPadding(),
+        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        verticalArrangement = Arrangement.spacedBy(14.dp),
+    ) {
+        item {
+            Text("Branlly Pocket", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
+            Text("Vos raccourcis, sans complications.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        state.message?.let { message ->
+            item {
+                Surface(
+                    modifier = Modifier.fillMaxWidth().clickable(viewModel::clearMessage),
+                    shape = RoundedCornerShape(14.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Text(message, modifier = Modifier.padding(14.dp))
+                }
+            }
+        }
+        item {
+            Button(onClick = viewModel::useDepartureBlueprint, modifier = Modifier.fillMaxWidth()) {
+                Text("＋ Nouvel itinéraire")
+            }
+        }
+        if (state.savedShortcuts.isEmpty()) {
+            item {
+                Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Column(Modifier.fillMaxWidth().padding(20.dp)) {
+                        Text("Aucun raccourci", fontWeight = FontWeight.Bold)
+                        Text("Créez un itinéraire, choisissez votre destination, puis enregistrez-le.")
+                    }
+                }
+            }
+        } else {
+            item { Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
+            items(state.savedShortcuts, key = SavedRouteShortcut::id) { shortcut ->
+                SavedShortcutCard(
+                    shortcut = shortcut,
+                    onLaunch = {
+                        val action = ShortcutAction.OpenRoute(
+                            navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
+                            destination = InputValue.Fixed(shortcut.destination),
+                            transportMode = shortcut.transportMode,
+                        )
+                        routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))?.let { message ->
+                            Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                        }
+                    },
+                    onEdit = { viewModel.editSaved(shortcut) },
+                    onDelete = { viewModel.deleteSaved(shortcut.id) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SavedShortcutCard(
+    shortcut: SavedRouteShortcut,
+    onLaunch: () -> Unit,
+    onEdit: () -> Unit,
+    onDelete: () -> Unit,
+) {
+    var confirmDelete by remember { mutableStateOf(false) }
+    Card(
+        modifier = Modifier.fillMaxWidth().clickable(onClick = onLaunch),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(18.dp)) {
+            Text(shortcut.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+            Text(shortcut.destination, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text("Toucher pour lancer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onEdit) { Text("Modifier") }
+                TextButton(onClick = { confirmDelete = true }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
+            }
+        }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Supprimer ce raccourci ?") },
+            text = { Text(shortcut.name) },
+            confirmButton = {
+                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                    Text("Supprimer", color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
+        )
     }
 }
 
@@ -161,8 +265,8 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
                     OutlinedButton(onClick = { testShortcut(context, draft) }, modifier = Modifier.weight(1f)) {
                         Text("Tester")
                     }
-                    Button(onClick = {}, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) {
-                        Text("Aperçu")
+                    Button(onClick = viewModel::saveDraft, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) {
+                        Text("Enregistrer")
                     }
                 }
             }

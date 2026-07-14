@@ -1,8 +1,12 @@
 package com.branlly.pocket.ui.editor
 
-import androidx.lifecycle.ViewModel
+import android.app.Application
+import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.viewModelScope
 import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
+import com.branlly.pocket.data.SavedRouteShortcut
+import com.branlly.pocket.data.SavedRouteShortcutStore
 import com.branlly.pocket.domain.catalog.LocalRecommendations
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ConnectionEvent
@@ -16,45 +20,64 @@ import com.branlly.pocket.domain.model.VolumeStream
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
 
-class EditorViewModel : ViewModel() {
+class EditorViewModel(application: Application) : AndroidViewModel(application) {
+    private val store = SavedRouteShortcutStore(application)
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
+
+    init {
+        viewModelScope.launch {
+            store.shortcuts.collect { shortcuts ->
+                _state.update { it.copy(savedShortcuts = shortcuts) }
+            }
+        }
+    }
 
     fun startFree() = openEditor(Trigger.ManualButton)
 
     fun startGuided(trigger: Trigger) = openEditor(trigger, configureTrigger = trigger.hasConfiguration())
 
     fun useMusicBlueprint() {
-        _state.value = EditorUiState(
-            screen = Screen.EDITOR,
-            draft = ShortcutDefinition(
-                name = "Mode musique",
-                category = ShortcutCategory.WELLBEING,
-                trigger = Trigger.ManualButton,
-                nodes = listOf(ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))),
-            ),
-        )
+        val node = ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(
+                    name = "Mode musique",
+                    category = ShortcutCategory.WELLBEING,
+                    trigger = Trigger.ManualButton,
+                    nodes = listOf(node),
+                ),
+                selectedNodeId = node.id,
+                savedShortcuts = state.savedShortcuts,
+            )
+        }
     }
 
     fun useDepartureBlueprint() {
-        _state.value = EditorUiState(
-            screen = Screen.EDITOR,
-            draft = ShortcutDefinition(
-                name = "Je vais partir",
-                category = ShortcutCategory.TRAVEL,
-                trigger = Trigger.ManualButton,
-                nodes = listOf(
-                    ActionNode(
-                        action = ShortcutAction.OpenRoute(
-                            navigationPackage = InputValue.Fixed("com.google.android.apps.maps"),
-                            destination = InputValue.Fixed(""),
-                        ),
-                    ),
-                ),
+        val node = ActionNode(
+            action = ShortcutAction.OpenRoute(
+                navigationPackage = InputValue.Fixed("com.google.android.apps.maps"),
+                destination = InputValue.Fixed(""),
             ),
         )
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(
+                    name = "Je vais partir",
+                    category = ShortcutCategory.TRAVEL,
+                    trigger = Trigger.ManualButton,
+                    nodes = listOf(node),
+                ),
+                selectedNodeId = node.id,
+                savedShortcuts = state.savedShortcuts,
+            )
+        }
     }
 
     fun useCarBlueprint() {
@@ -74,7 +97,7 @@ class EditorViewModel : ViewModel() {
         )
     }
 
-    fun showStart() = _state.update { EditorUiState() }
+    fun showStart() = _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts) }
     fun showGuidedTriggers() = _state.update { it.copy(screen = Screen.GUIDED_TRIGGER) }
     fun showBlueprints() = _state.update { it.copy(screen = Screen.BLUEPRINTS) }
     fun showLibrary(index: Int) = _state.update {
@@ -135,6 +158,60 @@ class EditorViewModel : ViewModel() {
         if (from < 0 || from == to) nodes else nodes.toMutableList().apply { add(to, removeAt(from)) }
     }
 
+    fun saveDraft() {
+        val draft = _state.value.draft ?: return
+        val route = draft.nodes.asSequence().filter(ActionNode::enabled).map(ActionNode::action)
+            .filterIsInstance<ShortcutAction.OpenRoute>().firstOrNull()
+        val packageName = (route?.navigationPackage as? InputValue.Fixed<String>)?.value
+        val destination = (route?.destination as? InputValue.Fixed<String>)?.value?.trim()
+        if (draft.name.isBlank() || route == null || packageName.isNullOrBlank() || destination.isNullOrBlank()) {
+            _state.update { it.copy(message = "Configurez un nom, une application et une destination.") }
+            return
+        }
+        viewModelScope.launch {
+            store.save(
+                SavedRouteShortcut(
+                    id = draft.id.value,
+                    name = draft.name.trim(),
+                    navigationPackage = packageName,
+                    destination = destination,
+                    transportMode = route.transportMode,
+                ),
+            )
+            _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts, message = "Raccourci enregistré.") }
+        }
+    }
+
+    fun editSaved(shortcut: SavedRouteShortcut) {
+        _state.update {
+            it.copy(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(
+                    id = com.branlly.pocket.domain.model.ShortcutId(shortcut.id),
+                    name = shortcut.name,
+                    category = ShortcutCategory.TRAVEL,
+                    trigger = Trigger.ManualButton,
+                    nodes = listOf(
+                        ActionNode(
+                            action = ShortcutAction.OpenRoute(
+                                navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
+                                destination = InputValue.Fixed(shortcut.destination),
+                                transportMode = shortcut.transportMode,
+                            ),
+                        ),
+                    ),
+                ),
+                message = null,
+            )
+        }
+    }
+
+    fun deleteSaved(id: String) {
+        viewModelScope.launch { store.delete(id) }
+    }
+
+    fun clearMessage() = _state.update { it.copy(message = null) }
+
     fun rename(name: String) {
         if (name.length <= ShortcutDefinition.MAX_NAME_LENGTH) {
             _state.update { it.copy(draft = it.draft?.copy(name = name)) }
@@ -155,12 +232,14 @@ class EditorViewModel : ViewModel() {
 }
 
 data class EditorUiState(
-    val screen: Screen = Screen.START,
+    val screen: Screen = Screen.HOME,
     val draft: ShortcutDefinition? = null,
     val libraryVisible: Boolean = false,
     val insertionIndex: Int = 0,
     val selectedNodeId: NodeId? = null,
     val triggerConfigurationVisible: Boolean = false,
+    val savedShortcuts: List<SavedRouteShortcut> = emptyList(),
+    val message: String? = null,
 ) {
     val selectedNode: ActionNode?
         get() = draft?.nodes?.find { it.id == selectedNodeId }
@@ -174,7 +253,7 @@ data class EditorUiState(
         }
 }
 
-enum class Screen { START, GUIDED_TRIGGER, BLUEPRINTS, EDITOR }
+enum class Screen { HOME, START, GUIDED_TRIGGER, BLUEPRINTS, EDITOR }
 
 private fun Trigger.hasConfiguration(): Boolean = when (this) {
     Trigger.ManualButton, Trigger.Widget, Trigger.QuickTile -> false
