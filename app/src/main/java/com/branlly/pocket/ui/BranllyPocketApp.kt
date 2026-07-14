@@ -2,6 +2,7 @@ package com.branlly.pocket.ui
 
 import android.content.Context
 import android.widget.Toast
+import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,6 +29,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
@@ -37,6 +39,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -147,10 +150,27 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
 private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
     val draft = state.draft ?: return
     val context = LocalContext.current
-    Box(Modifier.fillMaxSize()) {
+    Scaffold(
+        modifier = Modifier.fillMaxSize(),
+        bottomBar = {
+            Surface(tonalElevation = 5.dp, shadowElevation = 8.dp) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    OutlinedButton(onClick = { testShortcut(context, draft) }, modifier = Modifier.weight(1f)) {
+                        Text("Tester")
+                    }
+                    Button(onClick = {}, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) {
+                        Text("Aperçu")
+                    }
+                }
+            }
+        },
+    ) { scaffoldPadding ->
         LazyColumn(
-            modifier = Modifier.fillMaxSize().statusBarsPadding(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 12.dp, bottom = 104.dp),
+            modifier = Modifier.fillMaxSize().padding(scaffoldPadding).statusBarsPadding(),
+            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -172,6 +192,7 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
             item { InsertButton { viewModel.showLibrary(0) } }
             itemsIndexed(draft.nodes, key = { _, node -> node.id.value }) { index, node ->
                 ActionCard(
+                    index = index + 1,
                     node = node,
                     canMoveUp = index > 0,
                     canMoveDown = index < draft.nodes.lastIndex,
@@ -199,18 +220,6 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
                 }
             }
         }
-        Surface(
-            modifier = Modifier.align(Alignment.BottomCenter).fillMaxWidth(),
-            tonalElevation = 5.dp,
-        ) {
-            Row(
-                modifier = Modifier.navigationBarsPadding().padding(16.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                OutlinedButton(onClick = { testShortcut(context, draft) }, modifier = Modifier.weight(1f)) { Text("Tester") }
-                Button(onClick = {}, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) { Text("Aperçu") }
-            }
-        }
     }
     if (state.libraryVisible) {
         ModalBottomSheet(onDismissRequest = viewModel::hideLibrary) {
@@ -236,8 +245,10 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
 @Composable
 private fun TriggerCard(draft: ShortcutDefinition, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Text("DÉCLENCHEUR", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
@@ -249,6 +260,7 @@ private fun TriggerCard(draft: ShortcutDefinition, onClick: () -> Unit) {
 
 @Composable
 private fun ActionCard(
+    index: Int,
     node: ActionNode,
     canMoveUp: Boolean,
     canMoveDown: Boolean,
@@ -260,15 +272,21 @@ private fun ActionCard(
     onDelete: () -> Unit,
 ) {
     Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .alpha(if (node.enabled) 1f else 0.62f)
+            .animateContentSize()
+            .clickable(onClick = onEdit),
+        shape = RoundedCornerShape(20.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (node.enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
-                    Text("ACTION", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text("ACTION $index", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                     Text(node.action.summary(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
                 Switch(checked = node.enabled, onCheckedChange = { onToggle() })
@@ -345,7 +363,9 @@ private fun Page(
 @Composable
 private fun MethodCard(badge: String, title: String, description: String, prominent: Boolean, onClick: () -> Unit) {
     Card(
-        modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
+        modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onClick),
+        shape = RoundedCornerShape(20.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = if (prominent) 3.dp else 1.dp),
         colors = CardDefaults.cardColors(
             containerColor = if (prominent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
         ),
@@ -375,7 +395,7 @@ private fun TriggerChoice(title: String, onClick: () -> Unit) {
 @Composable
 private fun InsertButton(onClick: () -> Unit) {
     Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-        OutlinedButton(onClick = onClick) { Text("＋ Ajouter ici") }
+        TextButton(onClick = onClick) { Text("＋ Ajouter ici") }
     }
 }
 

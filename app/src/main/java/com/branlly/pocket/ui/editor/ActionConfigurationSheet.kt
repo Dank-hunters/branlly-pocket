@@ -109,8 +109,8 @@ private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (S
         selected = mode,
         text = { if (it == ValueMode.FIXED) "Toujours utiliser" else "Demander au lancement" },
         onSelected = { selectedMode ->
-            val value = if (selectedMode == ValueMode.FIXED) {
-                selectedPackage?.let(InputValue::Fixed) ?: InputValue.AskAtRuntime
+            val value: InputValue<String> = if (selectedMode == ValueMode.FIXED) {
+                selectedPackage?.let { InputValue.Fixed(it) } ?: InputValue.AskAtRuntime
             } else {
                 InputValue.AskAtRuntime
             }
