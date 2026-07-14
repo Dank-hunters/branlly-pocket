@@ -42,7 +42,15 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
 
     fun startFree() = openEditor(Trigger.ManualButton)
 
-    fun startGuided(trigger: Trigger) = openEditor(trigger, configureTrigger = trigger.hasConfiguration())
+    fun startGuided(trigger: Trigger) {
+        _state.update { state ->
+            state.copy(
+                screen = Screen.ACTION_CHOICE,
+                draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList()),
+                triggerConfigurationVisible = false,
+            )
+        }
+    }
 
     fun useMusicBlueprint() {
         val node = ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))
@@ -52,7 +60,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
                 draft = ShortcutDefinition(
                     name = "Mode musique",
                     category = ShortcutCategory.WELLBEING,
-                    trigger = Trigger.ManualButton,
+                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
                     nodes = listOf(node),
                 ),
                 selectedNodeId = node.id,
@@ -72,9 +80,9 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
             EditorUiState(
                 screen = Screen.EDITOR,
                 draft = ShortcutDefinition(
-                    name = "Je vais partir",
+                    name = "Nouvel itinéraire",
                     category = ShortcutCategory.TRAVEL,
-                    trigger = Trigger.ManualButton,
+                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
                     nodes = listOf(node),
                 ),
                 selectedNodeId = node.id,
@@ -248,7 +256,7 @@ data class EditorUiState(
         }
 }
 
-enum class Screen { HOME, START, GUIDED_TRIGGER, BLUEPRINTS, EDITOR }
+enum class Screen { HOME, START, GUIDED_TRIGGER, ACTION_CHOICE, BLUEPRINTS, EDITOR }
 
 private fun ShortcutAction.OpenRoute.toSavedShortcut(draft: ShortcutDefinition): SavedRouteShortcut? {
     val packageName = (navigationPackage as? InputValue.Fixed<String>)?.value?.takeIf(String::isNotBlank) ?: return null

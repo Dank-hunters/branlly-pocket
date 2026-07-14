@@ -55,9 +55,7 @@ import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
-import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.InputValue
-import com.branlly.pocket.domain.model.NumericComparison
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
@@ -73,7 +71,6 @@ import com.branlly.pocket.platform.android.RouteLauncher
 import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
 import com.branlly.pocket.ui.voice.VoiceCommandControl
-import java.time.LocalTime
 
 @Composable
 fun BranllyPocketApp(viewModel: EditorViewModel = viewModel()) {
@@ -82,6 +79,7 @@ fun BranllyPocketApp(viewModel: EditorViewModel = viewModel()) {
         Screen.HOME -> HomeScreen(state, viewModel)
         Screen.START -> StartScreen(viewModel)
         Screen.GUIDED_TRIGGER -> TriggerScreen(viewModel)
+        Screen.ACTION_CHOICE -> ActionChoiceScreen(viewModel)
         Screen.BLUEPRINTS -> BlueprintScreen(viewModel)
         Screen.EDITOR -> EditorScreen(state, viewModel)
     }
@@ -111,13 +109,8 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
             }
         }
         item {
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                Button(onClick = viewModel::useDepartureBlueprint, modifier = Modifier.weight(1f)) {
-                    Text("＋ Itinéraire")
-                }
-                OutlinedButton(onClick = viewModel::useMusicBlueprint, modifier = Modifier.weight(1f)) {
-                    Text("＋ Musique")
-                }
+            Button(onClick = viewModel::showGuidedTriggers, modifier = Modifier.fillMaxWidth()) {
+                Text("＋ Nouveau raccourci")
             }
         }
         item {
@@ -141,7 +134,7 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
                 Surface(shape = RoundedCornerShape(20.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
                     Column(Modifier.fillMaxWidth().padding(20.dp)) {
                         Text("Aucun raccourci", fontWeight = FontWeight.Bold)
-                        Text("Créez un itinéraire ou choisissez une application musicale.")
+                        Text("Choisissez un déclencheur, puis l’action à exécuter.")
                     }
                 }
             }
@@ -232,19 +225,45 @@ private fun TriggerScreen(viewModel: EditorViewModel) {
         subtitle = "Seuls les réglages utiles seront demandés.",
         onBack = viewModel::showStart,
     ) {
-        TriggerChoice("En appuyant sur un bouton") { viewModel.startGuided(Trigger.ManualButton) }
-        TriggerChoice("À une heure précise") { viewModel.startGuided(Trigger.Time(LocalTime.of(8, 0))) }
-        TriggerChoice("Lors d’une connexion Bluetooth") {
-            viewModel.startGuided(com.branlly.pocket.domain.model.Trigger.Bluetooth(null, "Appareil à choisir", com.branlly.pocket.domain.model.ConnectionEvent.CONNECTED))
+        TriggerChoice("Bouton dans Branlly Pocket") { viewModel.startGuided(Trigger.ManualButton) }
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Text(
+                "Les déclencheurs automatiques apparaîtront ici dès que leur moteur Android sera réellement opérationnel.",
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-        TriggerChoice("Lors d’une connexion Wi-Fi") {
-            viewModel.startGuided(Trigger.Wifi("Réseau à choisir", com.branlly.pocket.domain.model.ConnectionEvent.CONNECTED))
+    }
+}
+
+@Composable
+private fun ActionChoiceScreen(viewModel: EditorViewModel) {
+    Page(
+        title = "Que doit faire ce raccourci ?",
+        subtitle = "Choisissez une action. Vous la configurerez juste après.",
+        onBack = viewModel::showGuidedTriggers,
+    ) {
+        MethodCard(
+            badge = "OUVRIR",
+            title = "Une application",
+            description = "Choisir une application installée sur le téléphone.",
+            prominent = true,
+            onClick = viewModel::useMusicBlueprint,
+        )
+        MethodCard(
+            badge = "DÉPLACEMENT",
+            title = "Un itinéraire",
+            description = "Choisir Waze ou Google Maps et une destination.",
+            prominent = false,
+            onClick = viewModel::useDepartureBlueprint,
+        )
+        Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+            Text(
+                "Les autres actions seront ajoutées ici uniquement lorsqu’elles seront exécutables.",
+                modifier = Modifier.padding(16.dp),
+                style = MaterialTheme.typography.bodySmall,
+            )
         }
-        TriggerChoice("Lors du branchement du chargeur") { viewModel.startGuided(Trigger.Charger(ChargerEvent.PLUGGED)) }
-        TriggerChoice("Selon le niveau de batterie") { viewModel.startGuided(Trigger.BatteryLevel(20, NumericComparison.LESS_OR_EQUAL)) }
-        TriggerChoice("Avec un tag NFC") { viewModel.startGuided(Trigger.Nfc()) }
-        TriggerChoice("Depuis un widget") { viewModel.startGuided(Trigger.Widget) }
-        TriggerChoice("Depuis une tuile rapide") { viewModel.startGuided(Trigger.QuickTile) }
     }
 }
 
