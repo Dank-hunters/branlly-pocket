@@ -100,7 +100,7 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
         state.message?.let { message ->
             item {
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable(viewModel::clearMessage),
+                    modifier = Modifier.fillMaxWidth().clickable(onClick = viewModel::clearMessage),
                     shape = RoundedCornerShape(14.dp),
                     color = MaterialTheme.colorScheme.primaryContainer,
                 ) {
