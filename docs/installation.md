@@ -3,7 +3,7 @@
 ## Android — méthode recommandée
 
 1. Ouvrir la page **Releases** du dépôt GitHub depuis le téléphone.
-2. Télécharger `Branlly-Pocket-vX.Y.Z.apk` et son fichier `.sha256`.
+2. Télécharger `Branlly-Pocket.apk` et son fichier `.sha256`.
 3. Autoriser temporairement l’installation d’applications inconnues pour le navigateur utilisé.
 4. Installer l’APK, puis retirer immédiatement cette autorisation au navigateur.
 
@@ -16,7 +16,7 @@ Pour les utilisateurs non techniques, la distribution Play Store sera préférab
 Sur un ordinateur :
 
 ```bash
-sha256sum -c Branlly-Pocket-vX.Y.Z.apk.sha256
+sha256sum -c Branlly-Pocket.apk.sha256
 ```
 
 La somme doit être identique à celle publiée dans la release GitHub.
