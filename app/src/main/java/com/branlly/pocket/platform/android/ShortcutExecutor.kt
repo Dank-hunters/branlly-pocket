@@ -77,7 +77,10 @@ class ShortcutExecutor(
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
                 val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
                 val launchResult = ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
-                if (launchResult !is ShortcutExecutionResult.Completed || mediaUri == null || packageName == null) {
+                val waitForYoutubePlayback = packageName?.endsWith("youtube.music") == true
+                if (launchResult !is ShortcutExecutionResult.Completed || packageName == null ||
+                    (!waitForYoutubePlayback && mediaUri == null)
+                ) {
                     launchResult
                 } else {
                     when (MediaPlaybackMonitor(context).requestPlayAndAwait(packageName, MEDIA_PLAYBACK_TIMEOUT_MILLIS)) {
