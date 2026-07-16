@@ -6,6 +6,7 @@ import android.content.Intent
 import android.media.AudioManager
 import android.net.Uri
 import android.provider.Settings
+import android.util.Log
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ErrorStrategy
 import com.branlly.pocket.domain.model.ExecutionTiming
@@ -22,10 +23,22 @@ class ShortcutExecutor(
     private val context: Context,
 ) {
     suspend fun execute(shortcut: ShortcutDefinition): ShortcutExecutionResult {
+        val executionId =
+            java.util.UUID
+                .randomUUID()
+                .toString()
         val nodes = shortcut.nodes.filter(ActionNode::enabled)
         nodes.forEachIndexed { index, node ->
+            Log.i(
+                TAG,
+                "execution=$executionId index=$index type=${node.action.kind} state=STARTING timestamp=${System.currentTimeMillis()}",
+            )
             if (node.delayBeforeMillis > 0) delay(node.delayBeforeMillis)
             val result = executeWithStrategy(node)
+            Log.i(
+                TAG,
+                "execution=$executionId index=$index type=${node.action.kind} state=${if (result is ShortcutExecutionResult.Completed) "COMPLETED" else "FAILED"} result=$result timestamp=${System.currentTimeMillis()}",
+            )
             if (result !is ShortcutExecutionResult.Completed && node.errorStrategy is ErrorStrategy.Stop) return result
             val delayMillis = ExecutionTiming.automaticDelayAfter(node.action, nodes.getOrNull(index + 1)?.action)
             if (delayMillis > 0) delay(delayMillis)
@@ -64,26 +77,25 @@ class ShortcutExecutor(
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
                 val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
                 val launchResult = ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
-                if (launchResult !is ShortcutExecutionResult.Completed || mediaUri == null) {
+                if (launchResult !is ShortcutExecutionResult.Completed || mediaUri == null || packageName == null) {
                     launchResult
                 } else {
-                    delay(MEDIA_SESSION_SETTLE_DELAY_MILLIS)
-                    when (MediaPlaybackController(context).play()) {
-                        PlaybackStartResult.Started -> {
+                    when (MediaPlaybackMonitor(context).requestPlayAndAwait(packageName, MEDIA_PLAYBACK_TIMEOUT_MILLIS)) {
+                        MediaPlaybackAwaitResult.Playing -> {
                             ShortcutExecutionResult.Completed
                         }
 
-                        PlaybackStartResult.PermissionOrSessionMissing -> {
+                        MediaPlaybackAwaitResult.NotificationAccessMissing -> {
                             context.startActivity(
                                 Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
                             )
-                            ShortcutExecutionResult.Failed(
-                                "Autorisez une fois le contrôle de lecture de Branlly Pocket, puis relancez le raccourci.",
-                            )
+                            ShortcutExecutionResult.Failed("Autorisez le contrôle de lecture de Branlly Pocket, puis relancez la routine.")
                         }
 
-                        PlaybackStartResult.Failed -> {
-                            ShortcutExecutionResult.Failed("La lecture multimédia n’a pas pu démarrer.")
+                        MediaPlaybackAwaitResult.TimedOut -> {
+                            ShortcutExecutionResult.Failed(
+                                "La musique n’a pas démarré dans les 2 minutes. Lancez le morceau puis réessayez.",
+                            )
                         }
                     }
                 }
@@ -197,7 +209,8 @@ class ShortcutExecutor(
     }
 
     private companion object {
-        const val MEDIA_SESSION_SETTLE_DELAY_MILLIS = 2_000L
+        const val MEDIA_PLAYBACK_TIMEOUT_MILLIS = 120_000L
+        const val TAG = "BranllyExecution"
     }
 }
 

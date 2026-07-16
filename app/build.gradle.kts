@@ -24,8 +24,8 @@ android {
         applicationId = "com.branlly.pocket"
         minSdk = 26
         targetSdk = 35
-        versionCode = 26
-        versionName = "0.12.4"
+        versionCode = 27
+        versionName = "0.13.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true

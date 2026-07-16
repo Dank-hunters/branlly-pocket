@@ -80,9 +80,6 @@ import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
 import com.branlly.pocket.ui.editor.toComposeColor
 import com.branlly.pocket.ui.voice.VoiceCommandControl
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
 
 @Composable
 fun BranllyPocketApp(
@@ -972,26 +969,8 @@ private fun launchSavedShortcut(
     context: Context,
     shortcut: ShortcutDefinition,
 ) {
-    CoroutineScope(Dispatchers.Main.immediate).launch {
-        when (val result = ShortcutExecutor(context.applicationContext).execute(shortcut)) {
-            ShortcutExecutionResult.Completed -> {
-                Unit
-            }
-
-            is ShortcutExecutionResult.Failed -> {
-                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
-            }
-
-            is ShortcutExecutionResult.UnsupportedAction -> {
-                Toast
-                    .makeText(
-                        context,
-                        "L’action ${result.kind} n’est pas encore exécutable.",
-                        Toast.LENGTH_LONG,
-                    ).show()
-            }
-        }
-    }
+    com.branlly.pocket.platform.android.RoutineExecutionService
+        .start(context.applicationContext, shortcut.id.value)
 }
 
 private fun testShortcut(
