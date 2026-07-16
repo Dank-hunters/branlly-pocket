@@ -25,7 +25,20 @@ class BranllyPocketWidget : AppWidgetProvider() {
         manager: AppWidgetManager,
         appWidgetIds: IntArray,
     ) {
-        appWidgetIds.forEach { widgetId -> updateWidget(context, manager, widgetId) }
+        goAsync().also { pendingResult ->
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    val available =
+                        SavedShortcutStore(context.applicationContext)
+                            .shortcuts
+                            .first()
+                            .filter { it.widgetExecutableAction() != null }
+                    appWidgetIds.forEach { widgetId -> initializeWidget(context.applicationContext, manager, widgetId, available) }
+                } finally {
+                    pendingResult.finish()
+                }
+            }
+        }
     }
 
     override fun onReceive(
@@ -68,6 +81,24 @@ class BranllyPocketWidget : AppWidgetProvider() {
         const val ACTION_TOGGLE = "com.branlly.pocket.widget.TOGGLE"
         const val ACTION_RUN = "com.branlly.pocket.widget.RUN"
         const val EXTRA_SHORTCUT_ID = "shortcut_id"
+
+        private fun initializeWidget(
+            context: Context,
+            manager: AppWidgetManager,
+            widgetId: Int,
+            shortcuts: List<com.branlly.pocket.domain.model.ShortcutDefinition>,
+        ) {
+            val preferences = WidgetPreferences(context)
+            if (preferences.shortcutIds(widgetId).isEmpty()) {
+                preferences.save(
+                    widgetId,
+                    shortcuts.take(DEFAULT_SHORTCUT_COUNT).map { shortcut ->
+                        WidgetShortcutSlot(shortcut.id.value, shortcut.name, shortcut.iconKey, shortcut.accentColor)
+                    },
+                )
+            }
+            updateWidget(context, manager, widgetId)
+        }
 
         fun updateWidget(
             context: Context,
@@ -127,23 +158,23 @@ class BranllyPocketWidget : AppWidgetProvider() {
             )
 
         suspend fun refreshAll(context: Context) {
-            val available =
-                SavedShortcutStore(context)
-                    .shortcuts
-                    .first()
-                    .filter { it.widgetExecutableAction() != null }
-                    .associateBy { it.id.value }
+            val available = SavedShortcutStore(context).shortcuts.first().filter { it.widgetExecutableAction() != null }
+            val byId = available.associateBy { it.id.value }
             val manager = AppWidgetManager.getInstance(context)
             val preferences = WidgetPreferences(context)
             manager.getAppWidgetIds(ComponentName(context, BranllyPocketWidget::class.java)).forEach { widgetId ->
-                preferences.save(
-                    widgetId,
+                val retained =
                     preferences.shortcutIds(widgetId).mapNotNull { id ->
-                        available[id]?.let { shortcut ->
-                            WidgetShortcutSlot(id, shortcut.name, shortcut.iconKey, shortcut.accentColor)
-                        }
-                    },
-                )
+                        byId[id]?.let { shortcut -> WidgetShortcutSlot(id, shortcut.name, shortcut.iconKey, shortcut.accentColor) }
+                    }
+                val additions =
+                    available
+                        .asSequence()
+                        .filterNot { shortcut -> retained.any { it.id == shortcut.id.value } }
+                        .take(MAX_SHORTCUT_COUNT - retained.size)
+                        .map { shortcut -> WidgetShortcutSlot(shortcut.id.value, shortcut.name, shortcut.iconKey, shortcut.accentColor) }
+                        .toList()
+                preferences.save(widgetId, retained + additions)
                 updateWidget(context, manager, widgetId)
             }
         }
@@ -168,6 +199,9 @@ class BranllyPocketWidget : AppWidgetProvider() {
                 }
             }
         }
+
+        private const val DEFAULT_SHORTCUT_COUNT = 3
+        private const val MAX_SHORTCUT_COUNT = 6
 
         private val SLOT_IDS =
             intArrayOf(
