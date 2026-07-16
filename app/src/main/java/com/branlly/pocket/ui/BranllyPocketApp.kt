@@ -257,6 +257,7 @@ private fun HomeScreen(
                                     shortcut.name,
                                 )
                             },
+                            onDelete = { viewModel.deleteSaved(shortcut.id) },
                             onExport = {
                                 context.startActivity(
                                     Intent.createChooser(
@@ -274,6 +275,16 @@ private fun HomeScreen(
                 }
             }
         }
+        item {
+            TextButton(
+                onClick = {
+                    context.startActivity(
+                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Dank-hunters/branlly-pocket/releases")),
+                    )
+                },
+                modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
+            ) { Text("↗ Mettre à jour depuis GitHub") }
+        }
     }
 }
 
@@ -283,9 +294,11 @@ private fun CompactShortcutTile(
     onLaunch: () -> Unit,
     onEdit: () -> Unit,
     onPin: () -> Unit,
+    onDelete: () -> Unit,
     onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    var confirmDelete by remember { mutableStateOf(false) }
     Card(
         modifier = modifier.clickable(onClick = onLaunch),
         shape = RoundedCornerShape(24.dp),
@@ -335,6 +348,12 @@ private fun CompactShortcutTile(
                         color = accent,
                     )
                     Text(
+                        "×",
+                        modifier = Modifier.clickable { confirmDelete = true }.padding(horizontal = 6.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    Text(
                         "⋯",
                         modifier = Modifier.clickable(onClick = onEdit).padding(horizontal = 6.dp),
                         style = MaterialTheme.typography.titleMedium,
@@ -343,6 +362,20 @@ private fun CompactShortcutTile(
                 }
             }
         }
+    }
+    if (confirmDelete) {
+        AlertDialog(
+            onDismissRequest = { confirmDelete = false },
+            title = { Text("Supprimer ce raccourci ?") },
+            text = { Text(shortcut.name) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
+            },
+            dismissButton = { TextButton(onClick = { confirmDelete = false }) { Text("Annuler") } },
+        )
     }
 }
 
@@ -578,7 +611,8 @@ private fun EditorScreen(
                     value = draft.name,
                     onValueChange = viewModel::rename,
                     modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
-                    label = { Text("Nom du raccourci") },
+                    label = { Text("Nom visible du raccourci") },
+                    supportingText = { Text("Ex. « Travail », « Salle de sport » ou « Retour maison ».") },
                     singleLine = true,
                 )
                 OutlinedTextField(
