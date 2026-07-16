@@ -501,6 +501,11 @@ private fun EditorScreen(
                     Text("MODE SIMPLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
                 }
                 Text("Éditeur visuel", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
+                Text(
+                    "Les actions s’exécutent de haut en bas.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 OutlinedTextField(
                     value = draft.name,
                     onValueChange = viewModel::rename,
@@ -547,16 +552,51 @@ private fun EditorScreen(
                     }
                 }
             }
-            if (finalCandidates.size > 1) {
+            if (finalCandidates.isNotEmpty()) {
                 item {
-                    Text("Application affichée à la fin", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
-                        item {
-                            OutlinedButton(onClick = { viewModel.updateFinalForegroundNode(null) }) { Text("Dernière action") }
-                        }
-                        items(finalCandidates, key = { it.id.value }) { node ->
-                            OutlinedButton(onClick = { viewModel.updateFinalForegroundNode(node.id) }) {
-                                Text(node.action.summary())
+                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text(
+                                "À laisser affiché à la fin",
+                                style = MaterialTheme.typography.titleMedium,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Text(
+                                "Cette application est ramenée au premier plan après les autres actions.",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                item {
+                                    val selected = draft.finalForegroundNodeId == null
+                                    OutlinedButton(
+                                        onClick = { viewModel.updateFinalForegroundNode(null) },
+                                        colors =
+                                            if (selected) {
+                                                androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                )
+                                            } else {
+                                                androidx.compose.material3.ButtonDefaults
+                                                    .outlinedButtonColors()
+                                            },
+                                    ) { Text("Dernière action") }
+                                }
+                                items(finalCandidates, key = { it.id.value }) { node ->
+                                    val selected = draft.finalForegroundNodeId == node.id
+                                    OutlinedButton(
+                                        onClick = { viewModel.updateFinalForegroundNode(node.id) },
+                                        colors =
+                                            if (selected) {
+                                                androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
+                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
+                                                )
+                                            } else {
+                                                androidx.compose.material3.ButtonDefaults
+                                                    .outlinedButtonColors()
+                                            },
+                                    ) { Text(node.action.summary(), maxLines = 1) }
+                                }
                             }
                         }
                     }
