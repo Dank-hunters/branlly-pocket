@@ -89,8 +89,18 @@ class ApplicationLauncher(
                     .putExtra(SearchManager.QUERY, it)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
+        val youtubeMusicSearchIntent =
+            query
+                .takeIf(String::isNotBlank)
+                ?.takeIf { packageName.endsWith("youtube.music") }
+                ?.let {
+                    Intent(Intent.ACTION_VIEW, Uri.parse("https://music.youtube.com/search?q=${Uri.encode(it)}"))
+                        .setPackage(packageName)
+                        .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
         val intent =
             directIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
+                ?: youtubeMusicSearchIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
                 ?: searchIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
                 ?: context.packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 ?: return ApplicationLaunchResult.MissingApplication
