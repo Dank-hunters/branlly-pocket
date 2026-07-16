@@ -28,8 +28,7 @@
         android:usesCleartextTraffic="false">
         <activity
             android:name=".platform.android.WidgetConfigurationActivity"
-            android:exported="true"
-            android:permission="android.permission.BIND_APPWIDGET" />
+            android:exported="true" />
         <receiver
             android:name=".platform.android.BranllyPocketWidget"
             android:exported="false"
