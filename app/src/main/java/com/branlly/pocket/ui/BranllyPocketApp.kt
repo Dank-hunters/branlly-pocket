@@ -153,7 +153,7 @@ private fun HomeScreen(
             }
         } else {
             item { Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            items(state.savedShortcuts, key = ShortcutDefinition::id) { shortcut ->
+            items(state.savedShortcuts, key = { it.id.value }) { shortcut ->
                 SavedShortcutCard(
                     shortcut = shortcut,
                     onLaunch = { launchSavedShortcut(context, shortcut) },
