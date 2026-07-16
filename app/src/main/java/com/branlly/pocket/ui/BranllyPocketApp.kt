@@ -14,11 +14,13 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
@@ -102,8 +104,20 @@ private fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Text("Branlly Pocket", style = MaterialTheme.typography.headlineLarge, fontWeight = FontWeight.Bold)
-            Text("Vos raccourcis, sans complications.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Surface(
+                shape = RoundedCornerShape(28.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+            ) {
+                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    Text("BRANLLY POCKET", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
+                    Text("Vos actions, tout de suite.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                    Text(
+                        "Lancez et organisez sans détour.",
+                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
+            }
         }
         state.message?.let { message ->
             item {
@@ -117,9 +131,11 @@ private fun HomeScreen(
             }
         }
         item {
-            Button(onClick = viewModel::showGuidedTriggers, modifier = Modifier.fillMaxWidth()) {
-                Text("＋ Nouveau raccourci")
-            }
+            Button(
+                onClick = viewModel::showGuidedTriggers,
+                modifier = Modifier.fillMaxWidth().height(52.dp),
+                shape = RoundedCornerShape(18.dp),
+            ) { Text("Nouveau raccourci") }
         }
         item {
             VoiceCommandControl { command ->
@@ -157,15 +173,75 @@ private fun HomeScreen(
                 }
             }
         } else {
-            item { Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            items(state.savedShortcuts, key = { it.id.value }) { shortcut ->
-                SavedShortcutCard(
-                    shortcut = shortcut,
-                    onLaunch = { launchSavedShortcut(context, shortcut) },
-                    onEdit = { viewModel.editSaved(shortcut) },
-                    onDelete = { viewModel.deleteSaved(shortcut.id) },
+            item {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.weight(1f))
+                    Text(
+                        "${state.savedShortcuts.size}",
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            items(state.savedShortcuts.chunked(2), key = { shortcuts -> shortcuts.joinToString { it.id.value } }) { row ->
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.fillMaxWidth()) {
+                    row.forEach { shortcut ->
+                        CompactShortcutTile(
+                            shortcut = shortcut,
+                            onLaunch = { launchSavedShortcut(context, shortcut) },
+                            onEdit = { viewModel.editSaved(shortcut) },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+                    if (row.size == 1) Spacer(Modifier.weight(1f))
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CompactShortcutTile(
+    shortcut: ShortcutDefinition,
+    onLaunch: () -> Unit,
+    onEdit: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Card(
+        modifier = modifier.clickable(onClick = onLaunch),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
+    ) {
+        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                Box(contentAlignment = Alignment.Center) {
+                    Text(
+                        shortcutGlyph(shortcut.iconKey),
+                        style = MaterialTheme.typography.titleLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                }
+            }
+            Column {
+                Text(shortcut.name, maxLines = 1, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.Bold)
+                Text(
+                    shortcut.nodes
+                        .firstOrNull()
+                        ?.action
+                        ?.summary() ?: "Aucune action",
+                    maxLines = 2,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
+            TextButton(
+                onClick = onEdit,
+                contentPadding =
+                    androidx.compose.foundation.layout
+                        .PaddingValues(0.dp),
+            ) { Text("Modifier") }
         }
     }
 }
@@ -183,17 +259,37 @@ private fun SavedShortcutCard(
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp),
     ) {
-        Column(Modifier.fillMaxWidth().padding(18.dp)) {
-            Text(shortcut.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-            Text(
-                shortcut.nodes
-                    .firstOrNull()
-                    ?.action
-                    ?.summary() ?: "Aucune action",
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Text("Toucher pour lancer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+        Column(Modifier.fillMaxWidth().padding(14.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Surface(
+                    modifier = Modifier.size(44.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            shortcutGlyph(shortcut.iconKey),
+                            style = MaterialTheme.typography.titleLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                Column(Modifier.weight(1f).padding(start = 12.dp)) {
+                    Text(shortcut.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text(
+                        shortcut.nodes
+                            .firstOrNull()
+                            ?.action
+                            ?.summary() ?: "Aucune action",
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+            }
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
                 TextButton(onClick = onEdit) { Text("Modifier") }
                 TextButton(onClick = { confirmDelete = true }) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
             }
@@ -707,6 +803,24 @@ private fun applicationLaunchMessage(result: ApplicationLaunchResult): String? =
         ApplicationLaunchResult.InvalidPackage -> "L’application sélectionnée n’est pas valide."
         ApplicationLaunchResult.MissingApplication -> "L’application sélectionnée n’est plus installée."
         ApplicationLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’application."
+    }
+
+private fun shortcutGlyph(iconKey: String): String =
+    when (iconKey) {
+        "route" -> "↗"
+        "car" -> "▰"
+        "home" -> "⌂"
+        "music" -> "♪"
+        "camera" -> "◉"
+        "phone" -> "☎"
+        "message" -> "✉"
+        "work" -> "▣"
+        "calendar" -> "□"
+        "fitness" -> "♥"
+        "settings" -> "⚙"
+        "bluetooth" -> "ᛒ"
+        "moon" -> "☾"
+        else -> "ϟ"
     }
 
 private fun ActionCategory.label(): String =
