@@ -65,6 +65,7 @@ import com.branlly.pocket.platform.android.RouteLauncher
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
+import com.branlly.pocket.ui.editor.PresentationPickerSheet
 import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
 import com.branlly.pocket.ui.voice.VoiceCommandControl
@@ -350,6 +351,9 @@ private fun EditorScreen(
                     label = { Text("Nom du raccourci") },
                     singleLine = true,
                 )
+                OutlinedButton(onClick = viewModel::showPresentationPicker, modifier = Modifier.padding(top = 8.dp)) {
+                    Text("Icône et couleur")
+                }
             }
             item { TriggerCard(draft, viewModel::showTriggerConfiguration) }
             item { InsertButton { viewModel.showLibrary(0) } }
@@ -388,6 +392,14 @@ private fun EditorScreen(
         ModalBottomSheet(onDismissRequest = viewModel::hideLibrary) {
             ActionLibrary(draft.trigger, viewModel::addAction)
         }
+    }
+    if (state.presentationPickerVisible) {
+        PresentationPickerSheet(
+            iconKey = draft.iconKey,
+            accentColor = draft.accentColor,
+            onChange = viewModel::updatePresentation,
+            onDismiss = viewModel::hidePresentationPicker,
+        )
     }
     if (state.triggerConfigurationVisible) {
         TriggerConfigurationSheet(

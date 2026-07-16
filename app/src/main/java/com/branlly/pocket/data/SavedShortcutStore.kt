@@ -15,6 +15,7 @@ import com.branlly.pocket.domain.model.LogicalOperator
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.NumericComparison
 import com.branlly.pocket.domain.model.SettingsPanel
+import com.branlly.pocket.domain.model.ShortcutAccentColor
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutCategory
 import com.branlly.pocket.domain.model.ShortcutDefinition
@@ -91,6 +92,7 @@ class SavedShortcutStore(
             .put("id", definition.id.value)
             .put("name", definition.name)
             .put("iconKey", definition.iconKey)
+            .put("accentColor", definition.accentColor.name)
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
             .put("nodes", JSONArray().apply { definition.nodes.forEach { put(encodeNode(it)) } })
@@ -110,6 +112,7 @@ class SavedShortcutStore(
                 id = ShortcutId(item.requiredString("id", MAX_ID_LENGTH)),
                 name = item.requiredString("name", ShortcutDefinition.MAX_NAME_LENGTH),
                 iconKey = item.optString("iconKey", "bolt").take(MAX_ICON_KEY_LENGTH),
+                accentColor = enumValue(item.optString("accentColor"), ShortcutAccentColor.BLUE),
                 category = enumValue(item.optString("category"), ShortcutCategory.OTHER),
                 trigger = decodeTrigger(item.optJSONObject("trigger")) ?: return null,
                 nodes =
@@ -643,7 +646,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 2
+        private const val CURRENT_STORAGE_VERSION = 3
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"

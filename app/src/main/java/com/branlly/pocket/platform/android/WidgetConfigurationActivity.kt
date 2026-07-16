@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.domain.model.widgetExecutableAction
+import com.branlly.pocket.platform.android.WidgetShortcutSlot
 import com.branlly.pocket.ui.theme.BranllyPocketTheme
 
 class WidgetConfigurationActivity : ComponentActivity() {
@@ -114,7 +115,9 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                 WidgetPreferences(applicationContext).save(
                                     widgetId,
                                     selectedRunnableIds.mapNotNull { id ->
-                                        runnableShortcuts.firstOrNull { it.id.value == id }?.let { id to it.name }
+                                        runnableShortcuts.firstOrNull { it.id.value == id }?.let { shortcut ->
+                                            WidgetShortcutSlot(id, shortcut.name, shortcut.iconKey, shortcut.accentColor)
+                                        }
                                     },
                                 )
                                 BranllyPocketWidget.updateWidget(

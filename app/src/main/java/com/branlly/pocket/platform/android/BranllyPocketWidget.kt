@@ -11,6 +11,7 @@ import androidx.core.content.edit
 import com.branlly.pocket.R
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.InputValue
+import com.branlly.pocket.domain.model.ShortcutAccentColor
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.widgetExecutableAction
 import kotlinx.coroutines.CoroutineScope
@@ -82,21 +83,14 @@ class BranllyPocketWidget : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_center, toggleIntent(context, widgetId))
             if (preferences.isExpanded(widgetId)) {
                 SLOT_IDS.forEachIndexed { index, viewId ->
-                    val shortcutId = preferences.shortcutIds(widgetId).getOrNull(index)
-                    if (shortcutId == null) {
+                    val shortcut = preferences.slotAt(widgetId, index)
+                    if (shortcut == null) {
                         views.setViewVisibility(viewId, android.view.View.INVISIBLE)
                     } else {
                         views.setViewVisibility(viewId, android.view.View.VISIBLE)
-                        views.setTextViewText(
-                            viewId,
-                            preferences
-                                .shortcutLabels(widgetId)
-                                .getOrNull(index)
-                                ?.take(2)
-                                ?.uppercase()
-                                .orEmpty(),
-                        )
-                        views.setOnClickPendingIntent(viewId, runIntent(context, widgetId, shortcutId))
+                        views.setTextViewText(viewId, shortcut.iconKey.widgetGlyph())
+                        views.setTextColor(viewId, shortcut.accentColor.widgetColor())
+                        views.setOnClickPendingIntent(viewId, runIntent(context, widgetId, shortcut.id))
                     }
                 }
             }
@@ -138,13 +132,17 @@ class BranllyPocketWidget : AppWidgetProvider() {
                     .shortcuts
                     .first()
                     .filter { it.widgetExecutableAction() != null }
-                    .associate { it.id.value to it.name }
+                    .associateBy { it.id.value }
             val manager = AppWidgetManager.getInstance(context)
             val preferences = WidgetPreferences(context)
             manager.getAppWidgetIds(ComponentName(context, BranllyPocketWidget::class.java)).forEach { widgetId ->
                 preferences.save(
                     widgetId,
-                    preferences.shortcutIds(widgetId).mapNotNull { id -> available[id]?.let { id to it } },
+                    preferences.shortcutIds(widgetId).mapNotNull { id ->
+                        available[id]?.let { shortcut ->
+                            WidgetShortcutSlot(id, shortcut.name, shortcut.iconKey, shortcut.accentColor)
+                        }
+                    },
                 )
                 updateWidget(context, manager, widgetId)
             }
@@ -183,6 +181,46 @@ class BranllyPocketWidget : AppWidgetProvider() {
     }
 }
 
+data class WidgetShortcutSlot(
+    val id: String,
+    val label: String,
+    val iconKey: String,
+    val accentColor: ShortcutAccentColor,
+)
+
+private fun String.widgetGlyph(): String =
+    when (this) {
+        "route" -> "↗"
+        "car" -> "▰"
+        "home" -> "⌂"
+        "music" -> "♪"
+        "camera" -> "◉"
+        "phone" -> "☎"
+        "message" -> "✉"
+        "work" -> "▣"
+        "calendar" -> "□"
+        "fitness" -> "♥"
+        "settings" -> "⚙"
+        "bluetooth" -> "ᛒ"
+        "moon" -> "☾"
+        else -> "ϟ"
+    }
+
+private fun ShortcutAccentColor.widgetColor(): Int =
+    when (this) {
+        ShortcutAccentColor.BLUE -> 0xFF82AFFF.toInt()
+        ShortcutAccentColor.CYAN -> 0xFF75E3F5.toInt()
+        ShortcutAccentColor.VIOLET -> 0xFFB99CFF.toInt()
+        ShortcutAccentColor.PINK -> 0xFFFFA3D2.toInt()
+        ShortcutAccentColor.RED -> 0xFFFF9C9C.toInt()
+        ShortcutAccentColor.ORANGE -> 0xFFFFB77A.toInt()
+        ShortcutAccentColor.YELLOW -> 0xFFFFE082.toInt()
+        ShortcutAccentColor.GREEN -> 0xFF9BE49D.toInt()
+        ShortcutAccentColor.MINT -> 0xFF87E8C3.toInt()
+        ShortcutAccentColor.WHITE -> 0xFFF1F1F7.toInt()
+        ShortcutAccentColor.GRAY -> 0xFFC3C6D0.toInt()
+    }
+
 class WidgetPreferences(
     context: Context,
 ) {
@@ -199,15 +237,36 @@ class WidgetPreferences(
     fun shortcutLabels(widgetId: Int): List<String> =
         (0 until MAX_SHORTCUTS).mapNotNull { index -> preferences.getString("$KEY_LABEL$widgetId:$index", null) }
 
+    fun slotAt(
+        widgetId: Int,
+        index: Int,
+    ): WidgetShortcutSlot? {
+        val id = shortcutIds(widgetId).getOrNull(index) ?: return null
+        val label = preferences.getString("$KEY_LABEL$widgetId:$index", null) ?: return null
+        val iconKey = preferences.getString("$KEY_ICON$widgetId:$index", "bolt").orEmpty()
+        val accent =
+            runCatching { ShortcutAccentColor.valueOf(preferences.getString("$KEY_ACCENT$widgetId:$index", null).orEmpty()) }
+                .getOrDefault(ShortcutAccentColor.BLUE)
+        return WidgetShortcutSlot(id, label, iconKey, accent)
+    }
+
     fun save(
         widgetId: Int,
-        shortcuts: List<Pair<String, String>>,
+        shortcuts: List<WidgetShortcutSlot>,
     ) {
-        val selected = shortcuts.distinctBy(Pair<String, String>::first).take(MAX_SHORTCUTS)
+        val selected = shortcuts.distinctBy(WidgetShortcutSlot::id).take(MAX_SHORTCUTS)
         preferences.edit {
-            putString(KEY_SHORTCUTS + widgetId, selected.joinToString(",") { it.first })
-            selected.forEachIndexed { index, (_, label) -> putString("$KEY_LABEL$widgetId:$index", label.take(MAX_LABEL_LENGTH)) }
-            (selected.size until MAX_SHORTCUTS).forEach { index -> remove("$KEY_LABEL$widgetId:$index") }
+            putString(KEY_SHORTCUTS + widgetId, selected.joinToString(",") { it.id })
+            selected.forEachIndexed { index, shortcut ->
+                putString("$KEY_LABEL$widgetId:$index", shortcut.label.take(MAX_LABEL_LENGTH))
+                putString("$KEY_ICON$widgetId:$index", shortcut.iconKey)
+                putString("$KEY_ACCENT$widgetId:$index", shortcut.accentColor.name)
+            }
+            (selected.size until MAX_SHORTCUTS).forEach { index ->
+                remove("$KEY_LABEL$widgetId:$index")
+                remove("$KEY_ICON$widgetId:$index")
+                remove("$KEY_ACCENT$widgetId:$index")
+            }
             putBoolean(KEY_EXPANDED + widgetId, false)
         }
     }
@@ -222,7 +281,11 @@ class WidgetPreferences(
         preferences.edit {
             remove(KEY_SHORTCUTS + widgetId)
             remove(KEY_EXPANDED + widgetId)
-            (0 until MAX_SHORTCUTS).forEach { index -> remove("$KEY_LABEL$widgetId:$index") }
+            (0 until MAX_SHORTCUTS).forEach { index ->
+                remove("$KEY_LABEL$widgetId:$index")
+                remove("$KEY_ICON$widgetId:$index")
+                remove("$KEY_ACCENT$widgetId:$index")
+            }
         }
 
     private companion object {
@@ -230,6 +293,8 @@ class WidgetPreferences(
         const val KEY_SHORTCUTS = "shortcuts_"
         const val KEY_EXPANDED = "expanded_"
         const val KEY_LABEL = "label_"
+        const val KEY_ICON = "icon_"
+        const val KEY_ACCENT = "accent_"
         const val MAX_SHORTCUTS = 6
         const val MAX_LABEL_LENGTH = 80
     }

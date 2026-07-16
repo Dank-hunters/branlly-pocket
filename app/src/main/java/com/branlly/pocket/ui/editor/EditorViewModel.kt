@@ -11,6 +11,7 @@ import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ConnectionEvent
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NodeId
+import com.branlly.pocket.domain.model.ShortcutAccentColor
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutCategory
 import com.branlly.pocket.domain.model.ShortcutDefinition
@@ -140,6 +141,17 @@ class EditorViewModel(
 
     fun hideConfiguration() = _state.update { it.copy(selectedNodeId = null) }
 
+    fun showPresentationPicker() = _state.update { it.copy(presentationPickerVisible = true) }
+
+    fun hidePresentationPicker() = _state.update { it.copy(presentationPickerVisible = false) }
+
+    fun updatePresentation(
+        iconKey: String,
+        accentColor: ShortcutAccentColor,
+    ) = _state.update { state ->
+        state.copy(draft = state.draft?.copy(iconKey = iconKey, accentColor = accentColor))
+    }
+
     fun showTriggerConfiguration() =
         _state.update {
             it.copy(triggerConfigurationVisible = true, libraryVisible = false, selectedNodeId = null)
@@ -259,6 +271,7 @@ data class EditorUiState(
     val insertionIndex: Int = 0,
     val selectedNodeId: NodeId? = null,
     val triggerConfigurationVisible: Boolean = false,
+    val presentationPickerVisible: Boolean = false,
     val savedShortcuts: List<ShortcutDefinition> = emptyList(),
     val message: String? = null,
 ) {
