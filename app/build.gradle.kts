@@ -8,12 +8,13 @@ val signingStoreFile = providers.environmentVariable("BRANLLY_SIGNING_STORE_FILE
 val signingStorePassword = providers.environmentVariable("BRANLLY_SIGNING_STORE_PASSWORD")
 val signingKeyAlias = providers.environmentVariable("BRANLLY_SIGNING_KEY_ALIAS")
 val signingKeyPassword = providers.environmentVariable("BRANLLY_SIGNING_KEY_PASSWORD")
-val hasReleaseSigning = listOf(
-    signingStoreFile,
-    signingStorePassword,
-    signingKeyAlias,
-    signingKeyPassword,
-).all { !it.orNull.isNullOrBlank() }
+val hasReleaseSigning =
+    listOf(
+        signingStoreFile,
+        signingStorePassword,
+        signingKeyAlias,
+        signingKeyPassword,
+    ).all { !it.orNull.isNullOrBlank() }
 
 android {
     namespace = "com.branlly.pocket"
@@ -23,8 +24,8 @@ android {
         applicationId = "com.branlly.pocket"
         minSdk = 26
         targetSdk = 35
-        versionCode = 6
-        versionName = "0.6.0"
+        versionCode = 7
+        versionName = "0.7.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
