@@ -332,10 +332,17 @@ class EditorViewModel(
     fun move(
         nodeId: NodeId,
         delta: Int,
-    ) = updateNodes { nodes ->
-        val from = nodes.indexOfFirst { it.id == nodeId }
-        val to = (from + delta).coerceIn(0, nodes.lastIndex)
-        if (from < 0 || from == to) nodes else nodes.toMutableList().apply { add(to, removeAt(from)) }
+    ) {
+        _state.update { state ->
+            val draft = state.draft ?: return@update state
+            val nodes = draft.nodes
+            val from = nodes.indexOfFirst { it.id == nodeId }
+            val to = (from + delta).coerceIn(0, nodes.lastIndex)
+            if (from < 0 || from == to) return@update state
+            val reordered = nodes.toMutableList().apply { add(to, removeAt(from)) }
+            // Reordering makes the natural final action unambiguous again.
+            state.copy(draft = draft.copy(nodes = reordered, finalForegroundNodeId = null))
+        }
     }
 
     fun saveDraft() {
