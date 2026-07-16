@@ -49,14 +49,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
         val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
         if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
         when (intent.action) {
-            ACTION_TOGGLE -> {
-                WidgetPreferences(context).toggleExpanded(widgetId)
-                updateWidget(context, AppWidgetManager.getInstance(context), widgetId)
-            }
-
             ACTION_RUN -> {
-                WidgetPreferences(context).collapse(widgetId)
-                updateWidget(context, AppWidgetManager.getInstance(context), widgetId)
                 intent.getStringExtra(EXTRA_SHORTCUT_ID)?.let { shortcutId ->
                     goAsync().also { pendingResult ->
                         CoroutineScope(Dispatchers.IO).launch {
@@ -78,7 +71,6 @@ class BranllyPocketWidget : AppWidgetProvider() {
     }
 
     companion object {
-        const val ACTION_TOGGLE = "com.branlly.pocket.widget.TOGGLE"
         const val ACTION_RUN = "com.branlly.pocket.widget.RUN"
         const val EXTRA_SHORTCUT_ID = "shortcut_id"
 
@@ -106,41 +98,20 @@ class BranllyPocketWidget : AppWidgetProvider() {
             widgetId: Int,
         ) {
             val preferences = WidgetPreferences(context)
-            val views =
-                RemoteViews(
-                    context.packageName,
-                    if (preferences.isExpanded(widgetId)) R.layout.widget_branlly_expanded else R.layout.widget_branlly_compact,
-                )
-            views.setOnClickPendingIntent(R.id.widget_center, toggleIntent(context, widgetId))
-            if (preferences.isExpanded(widgetId)) {
-                SLOT_IDS.forEachIndexed { index, viewId ->
-                    val shortcut = preferences.slotAt(widgetId, index)
-                    if (shortcut == null) {
-                        views.setViewVisibility(viewId, android.view.View.INVISIBLE)
-                    } else {
-                        views.setViewVisibility(viewId, android.view.View.VISIBLE)
-                        views.setTextViewText(viewId, shortcut.label.ifBlank { shortcut.iconKey.widgetGlyph() })
-                        views.setTextColor(viewId, shortcut.accentColor.widgetColor())
-                        views.setOnClickPendingIntent(viewId, runIntent(context, widgetId, shortcut.id))
-                    }
+            val views = RemoteViews(context.packageName, R.layout.widget_branlly_expanded)
+            SLOT_IDS.forEachIndexed { index, viewId ->
+                val shortcut = preferences.slotAt(widgetId, index)
+                if (shortcut == null) {
+                    views.setViewVisibility(viewId, android.view.View.INVISIBLE)
+                } else {
+                    views.setViewVisibility(viewId, android.view.View.VISIBLE)
+                    views.setTextViewText(viewId, shortcut.label.ifBlank { shortcut.iconKey.widgetGlyph() })
+                    views.setTextColor(viewId, shortcut.accentColor.widgetColor())
+                    views.setOnClickPendingIntent(viewId, runIntent(context, widgetId, shortcut.id))
                 }
             }
             manager.updateAppWidget(widgetId, views)
         }
-
-        private fun toggleIntent(
-            context: Context,
-            widgetId: Int,
-        ): PendingIntent =
-            PendingIntent.getBroadcast(
-                context,
-                widgetId,
-                Intent(
-                    context,
-                    BranllyPocketWidget::class.java,
-                ).setAction(ACTION_TOGGLE).putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId),
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
 
         private fun runIntent(
             context: Context,

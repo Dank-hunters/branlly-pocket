@@ -317,6 +317,11 @@ private fun EditorScreen(
 ) {
     val draft = state.draft ?: return
     val context = LocalContext.current
+    val automaticPauseCount =
+        draft.nodes.filter(ActionNode::enabled).map(ActionNode::action).zipWithNext().count { (current, next) ->
+            (current is ShortcutAction.OpenApplication || current is ShortcutAction.OpenRoute) &&
+                (next is ShortcutAction.OpenApplication || next is ShortcutAction.OpenRoute)
+        }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -383,6 +388,17 @@ private fun EditorScreen(
                     onDelete = { viewModel.remove(node.id) },
                 )
                 InsertButton { viewModel.showLibrary(index + 1) }
+            }
+            if (automaticPauseCount > 0) {
+                item {
+                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
+                        Text(
+                            "Pause automatique de 5 s entre applications externes. Ajoutez Attendre pour choisir un délai différent.",
+                            modifier = Modifier.padding(14.dp),
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
             if (state.suggestions.isNotEmpty()) {
                 item {

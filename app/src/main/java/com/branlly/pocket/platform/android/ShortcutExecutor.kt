@@ -2,6 +2,7 @@ package com.branlly.pocket.platform.android
 
 import android.content.Context
 import com.branlly.pocket.domain.model.ActionNode
+import com.branlly.pocket.domain.model.ExecutionTiming
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutDefinition
@@ -12,9 +13,12 @@ class ShortcutExecutor(
     private val context: Context,
 ) {
     suspend fun execute(shortcut: ShortcutDefinition): ShortcutExecutionResult {
-        shortcut.nodes.filter(ActionNode::enabled).forEach { node ->
-            val result = execute(node.action)
+        val actions = shortcut.nodes.filter(ActionNode::enabled).map(ActionNode::action)
+        actions.forEachIndexed { index, action ->
+            val result = execute(action)
             if (result !is ShortcutExecutionResult.Completed) return result
+            val delayMillis = ExecutionTiming.automaticDelayAfter(action, actions.getOrNull(index + 1))
+            if (delayMillis > 0) delay(delayMillis)
         }
         return ShortcutExecutionResult.Completed
     }
