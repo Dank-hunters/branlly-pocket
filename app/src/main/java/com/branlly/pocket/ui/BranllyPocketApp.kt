@@ -29,6 +29,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
@@ -299,6 +301,7 @@ private fun CompactShortcutTile(
     modifier: Modifier = Modifier,
 ) {
     var confirmDelete by remember { mutableStateOf(false) }
+    var menuExpanded by remember { mutableStateOf(false) }
     Card(
         modifier = modifier.clickable(onClick = onLaunch),
         shape = RoundedCornerShape(24.dp),
@@ -334,31 +337,32 @@ private fun CompactShortcutTile(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Row {
-                    Text(
-                        "⌑",
-                        modifier = Modifier.clickable(onClick = onPin).padding(horizontal = 6.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = accent,
-                    )
-                    Text(
-                        "⇧",
-                        modifier = Modifier.clickable(onClick = onExport).padding(horizontal = 6.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = accent,
-                    )
-                    Text(
-                        "×",
-                        modifier = Modifier.clickable { confirmDelete = true }.padding(horizontal = 6.dp),
-                        style = MaterialTheme.typography.titleMedium,
-                        color = MaterialTheme.colorScheme.error,
-                    )
+                Box {
                     Text(
                         "⋯",
-                        modifier = Modifier.clickable(onClick = onEdit).padding(horizontal = 6.dp),
+                        modifier = Modifier.clickable { menuExpanded = true }.padding(horizontal = 8.dp),
                         style = MaterialTheme.typography.titleMedium,
                         color = accent,
                     )
+                    DropdownMenu(expanded = menuExpanded, onDismissRequest = { menuExpanded = false }) {
+                        DropdownMenuItem(text = { Text("Modifier") }, onClick = {
+                            menuExpanded = false
+                            onEdit()
+                        })
+                        DropdownMenuItem(text = { Text("Épingler sur l’accueil") }, onClick = {
+                            menuExpanded = false
+                            onPin()
+                        })
+                        DropdownMenuItem(text = { Text("Exporter") }, onClick = {
+                            menuExpanded = false
+                            onExport()
+                        })
+                        DropdownMenuItem(text = { Text("Supprimer", color = MaterialTheme.colorScheme.error) }, onClick = {
+                            menuExpanded =
+                                false
+                            ; confirmDelete = true
+                        })
+                    }
                 }
             }
         }
