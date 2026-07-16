@@ -17,6 +17,7 @@ import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.ShortcutId
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.VolumeStream
+import com.branlly.pocket.platform.android.BranllyPocketWidget
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -208,6 +209,7 @@ class EditorViewModel(
         }
         viewModelScope.launch {
             store.save(draft.copy(name = draft.name.trim()))
+            BranllyPocketWidget.refreshAll(getApplication())
             _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts, message = "Raccourci enregistré.") }
         }
     }
@@ -219,7 +221,10 @@ class EditorViewModel(
     }
 
     fun deleteSaved(id: ShortcutId) {
-        viewModelScope.launch { store.delete(id) }
+        viewModelScope.launch {
+            store.delete(id)
+            BranllyPocketWidget.refreshAll(getApplication())
+        }
     }
 
     fun clearMessage() = _state.update { it.copy(message = null) }

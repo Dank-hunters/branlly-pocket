@@ -3,6 +3,7 @@ package com.branlly.pocket.platform.android
 import android.app.PendingIntent
 import android.appwidget.AppWidgetManager
 import android.appwidget.AppWidgetProvider
+import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.widget.RemoteViews
@@ -11,6 +12,7 @@ import com.branlly.pocket.R
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.ShortcutAction
+import com.branlly.pocket.domain.model.widgetExecutableAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -39,6 +41,8 @@ class BranllyPocketWidget : AppWidgetProvider() {
             }
 
             ACTION_RUN -> {
+                WidgetPreferences(context).collapse(widgetId)
+                updateWidget(context, AppWidgetManager.getInstance(context), widgetId)
                 intent.getStringExtra(EXTRA_SHORTCUT_ID)?.let { shortcutId ->
                     goAsync().also { pendingResult ->
                         CoroutineScope(Dispatchers.IO).launch {
@@ -128,12 +132,30 @@ class BranllyPocketWidget : AppWidgetProvider() {
                 PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
             )
 
+        suspend fun refreshAll(context: Context) {
+            val available =
+                SavedShortcutStore(context)
+                    .shortcuts
+                    .first()
+                    .filter { it.widgetExecutableAction() != null }
+                    .associate { it.id.value to it.name }
+            val manager = AppWidgetManager.getInstance(context)
+            val preferences = WidgetPreferences(context)
+            manager.getAppWidgetIds(ComponentName(context, BranllyPocketWidget::class.java)).forEach { widgetId ->
+                preferences.save(
+                    widgetId,
+                    preferences.shortcutIds(widgetId).mapNotNull { id -> available[id]?.let { id to it } },
+                )
+                updateWidget(context, manager, widgetId)
+            }
+        }
+
         private suspend fun runShortcut(
             context: Context,
             shortcutId: String,
         ) {
             val shortcut = SavedShortcutStore(context).shortcuts.first().firstOrNull { it.id.value == shortcutId } ?: return
-            when (val action = shortcut.nodes.firstOrNull { it.enabled }?.action) {
+            when (val action = shortcut.widgetExecutableAction()) {
                 is ShortcutAction.OpenRoute -> {
                     RouteLauncher(context).launch(action)
                 }
@@ -193,6 +215,8 @@ class WidgetPreferences(
     fun isExpanded(widgetId: Int): Boolean = preferences.getBoolean(KEY_EXPANDED + widgetId, false)
 
     fun toggleExpanded(widgetId: Int) = preferences.edit { putBoolean(KEY_EXPANDED + widgetId, !isExpanded(widgetId)) }
+
+    fun collapse(widgetId: Int) = preferences.edit { putBoolean(KEY_EXPANDED + widgetId, false) }
 
     fun delete(widgetId: Int) =
         preferences.edit {

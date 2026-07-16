@@ -32,14 +32,14 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.summary
+import com.branlly.pocket.domain.model.widgetExecutableAction
 import com.branlly.pocket.ui.theme.BranllyPocketTheme
 
 class WidgetConfigurationActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val widgetId = intent.getIntExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, AppWidgetManager.INVALID_APPWIDGET_ID)
-        val provider = AppWidgetManager.getInstance(applicationContext).getAppWidgetInfo(widgetId)?.provider
-        if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID || provider?.className != BranllyPocketWidget::class.java.name) {
+        if (widgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
             finish()
             return
         }
@@ -47,7 +47,12 @@ class WidgetConfigurationActivity : ComponentActivity() {
         setContent {
             BranllyPocketTheme {
                 val shortcuts by SavedShortcutStore(applicationContext).shortcuts.collectAsState(initial = emptyList())
+                val runnableShortcuts = shortcuts.filter { it.widgetExecutableAction() != null }
                 var selectedIds by remember(widgetId) { mutableStateOf(WidgetPreferences(applicationContext).shortcutIds(widgetId)) }
+                val selectedRunnableIds =
+                    selectedIds.filter { selectedId ->
+                        runnableShortcuts.any { it.id.value == selectedId }
+                    }
                 LazyColumn(
                     modifier = Modifier.fillMaxSize(),
                     contentPadding = PaddingValues(20.dp),
@@ -60,12 +65,15 @@ class WidgetConfigurationActivity : ComponentActivity() {
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    if (shortcuts.isEmpty()) {
+                    if (runnableShortcuts.isEmpty()) {
                         item {
-                            Text("Créez d’abord un raccourci dans Branlly Pocket.", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Text(
+                                "Créez un itinéraire ou un raccourci d’application entièrement configuré.",
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
                         }
                     }
-                    items(shortcuts, key = { it.id }) { shortcut ->
+                    items(runnableShortcuts, key = { it.id }) { shortcut ->
                         val selected = shortcut.id.value in selectedIds
                         Card(
                             modifier =
@@ -73,7 +81,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                     selectedIds =
                                         when {
                                             selected -> selectedIds - shortcut.id.value
-                                            selectedIds.size < MAX_SHORTCUTS -> selectedIds + shortcut.id.value
+                                            selectedRunnableIds.size < MAX_SHORTCUTS -> selectedRunnableIds + shortcut.id.value
                                             else -> selectedIds
                                         }
                                 },
@@ -93,7 +101,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                 )
                                 if (selected) {
                                     Text(
-                                        "Position ${selectedIds.indexOf(shortcut.id.value) + 1}",
+                                        "Position ${selectedRunnableIds.indexOf(shortcut.id.value) + 1}",
                                         color = MaterialTheme.colorScheme.primary,
                                     )
                                 }
@@ -105,7 +113,9 @@ class WidgetConfigurationActivity : ComponentActivity() {
                             onClick = {
                                 WidgetPreferences(applicationContext).save(
                                     widgetId,
-                                    selectedIds.mapNotNull { id -> shortcuts.firstOrNull { it.id.value == id }?.let { id to it.name } },
+                                    selectedRunnableIds.mapNotNull { id ->
+                                        runnableShortcuts.firstOrNull { it.id.value == id }?.let { id to it.name }
+                                    },
                                 )
                                 BranllyPocketWidget.updateWidget(
                                     applicationContext,
@@ -115,7 +125,7 @@ class WidgetConfigurationActivity : ComponentActivity() {
                                 setResult(Activity.RESULT_OK, Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, widgetId))
                                 finish()
                             },
-                            enabled = selectedIds.isNotEmpty(),
+                            enabled = selectedRunnableIds.isNotEmpty(),
                             modifier = Modifier.fillMaxWidth(),
                         ) { Text("Ajouter au widget") }
                         TextButton(onClick = ::finish, modifier = Modifier.fillMaxWidth()) { Text("Annuler") }
