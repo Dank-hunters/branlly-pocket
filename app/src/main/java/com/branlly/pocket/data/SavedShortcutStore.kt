@@ -315,6 +315,7 @@ class SavedShortcutStore(
                 is ShortcutAction.OpenApplication -> {
                     put("package", encodeInput(action.packageName))
                     action.searchQuery?.let { put("searchQuery", encodeInput(it)) }
+                    action.mediaUri?.let { put("mediaUri", encodeInput(it)) }
                 }
 
                 is ShortcutAction.OpenWebsite -> {
@@ -395,6 +396,7 @@ class SavedShortcutStore(
                     ShortcutAction.OpenApplication(
                         packageName = decodeStringInput(value.optJSONObject("package")) ?: return null,
                         searchQuery = value.optJSONObject("searchQuery")?.let(::decodeStringInput),
+                        mediaUri = value.optJSONObject("mediaUri")?.let(::decodeStringInput),
                     )
                 }
 
@@ -654,7 +656,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 6
+        private const val CURRENT_STORAGE_VERSION = 7
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"

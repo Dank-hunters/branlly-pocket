@@ -164,6 +164,18 @@ private fun ApplicationForm(
             supportingText = { Text("L’application choisie ouvrira sa recherche si elle la prend en charge.") },
             singleLine = true,
         )
+        val mediaLink = (action.mediaUri as? InputValue.Fixed<String>)?.value.orEmpty()
+        OutlinedTextField(
+            value = mediaLink,
+            onValueChange = { value ->
+                val normalized = value.take(MAX_MEDIA_LINK_LENGTH)
+                onChange(action.copy(mediaUri = normalized.takeIf(String::isNotBlank)?.let { InputValue.Fixed(it) }))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Lien du titre exact (facultatif)") },
+            supportingText = { Text("Copiez le lien partagé par Spotify ou YouTube Music. Il est prioritaire sur la recherche.") },
+            singleLine = true,
+        )
     }
     if (mode == ValueMode.FIXED || selectedPackage == null) {
         OutlinedTextField(
@@ -208,6 +220,7 @@ private fun ApplicationForm(
 
 private const val MAX_SEARCH_LENGTH = 80
 private const val MAX_MEDIA_SEARCH_LENGTH = 120
+private const val MAX_MEDIA_LINK_LENGTH = 2_000
 
 @Composable
 private fun VolumeForm(

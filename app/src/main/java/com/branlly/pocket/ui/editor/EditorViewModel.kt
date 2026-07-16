@@ -71,6 +71,32 @@ class EditorViewModel(
         }
     }
 
+    fun receiveSharedMediaLink(link: String) {
+        val node =
+            ActionNode(
+                action =
+                    ShortcutAction.OpenApplication(
+                        packageName = InputValue.AskAtRuntime,
+                        mediaUri = InputValue.Fixed(link),
+                    ),
+            )
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft =
+                    ShortcutDefinition(
+                        name = "Titre partagé",
+                        category = ShortcutCategory.WELLBEING,
+                        trigger = Trigger.ManualButton,
+                        nodes = listOf(node),
+                    ),
+                selectedNodeId = node.id,
+                savedShortcuts = state.savedShortcuts,
+                message = "Choisissez l’application qui ouvrira ce titre.",
+            )
+        }
+    }
+
     fun useDepartureBlueprint() {
         val node =
             ActionNode(

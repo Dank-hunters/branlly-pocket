@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.content.pm.ResolveInfo
+import android.net.Uri
 import android.os.Build
 
 private const val MAX_APPLICATION_COUNT = 500
@@ -71,9 +72,15 @@ class ApplicationLauncher(
     fun launch(
         packageName: String?,
         searchQuery: String? = null,
+        mediaUri: String? = null,
     ): ApplicationLaunchResult {
         if (packageName == null) return ApplicationLaunchResult.RuntimeValueRequired
         if (!PACKAGE_NAME.matches(packageName)) return ApplicationLaunchResult.InvalidPackage
+        val directUri = mediaUri?.trim()?.take(MAX_MEDIA_URI_LENGTH)?.takeIf(::isSafeMediaUri)
+        val directIntent =
+            directUri?.let {
+                Intent(Intent.ACTION_VIEW, Uri.parse(it)).setPackage(packageName).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+            }
         val query = searchQuery?.trim()?.take(MAX_SEARCH_QUERY_LENGTH).orEmpty()
         val searchIntent =
             query.takeIf(String::isNotBlank)?.let {
@@ -83,7 +90,8 @@ class ApplicationLauncher(
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
             }
         val intent =
-            searchIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
+            directIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
+                ?: searchIntent?.takeIf { it.resolveActivity(context.packageManager) != null }
                 ?: context.packageManager.getLaunchIntentForPackage(packageName)?.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                 ?: return ApplicationLaunchResult.MissingApplication
         return try {
@@ -99,5 +107,12 @@ class ApplicationLauncher(
     companion object {
         private val PACKAGE_NAME = Regex("^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)+$")
         private const val MAX_SEARCH_QUERY_LENGTH = 120
+        private const val MAX_MEDIA_URI_LENGTH = 2_000
+
+        private fun isSafeMediaUri(raw: String): Boolean =
+            runCatching {
+                val uri = Uri.parse(raw)
+                uri.scheme.equals("https", ignoreCase = true) && !uri.host.isNullOrBlank() && uri.userInfo == null
+            }.getOrDefault(false)
     }
 }

@@ -20,6 +20,7 @@ sealed interface ShortcutAction {
     data class OpenApplication(
         val packageName: InputValue<String>,
         val searchQuery: InputValue<String>? = null,
+        val mediaUri: InputValue<String>? = null,
     ) : ShortcutAction {
         override val kind = ActionKind.OPEN_APPLICATION
     }

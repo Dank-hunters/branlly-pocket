@@ -35,7 +35,8 @@ class ShortcutExecutor(
             is ShortcutAction.OpenApplication -> {
                 val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
-                ApplicationLauncher(context).launch(packageName, searchQuery).toExecutionResult()
+                val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
+                ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
             }
 
             is ShortcutAction.OpenRoute -> {
