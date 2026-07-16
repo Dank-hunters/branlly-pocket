@@ -92,6 +92,7 @@ class SavedShortcutStore(
             .put("id", definition.id.value)
             .put("name", definition.name)
             .put("iconKey", definition.iconKey)
+            .put("widgetLabel", definition.widgetLabel)
             .put("accentColor", definition.accentColor.name)
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
@@ -112,6 +113,7 @@ class SavedShortcutStore(
                 id = ShortcutId(item.requiredString("id", MAX_ID_LENGTH)),
                 name = item.requiredString("name", ShortcutDefinition.MAX_NAME_LENGTH),
                 iconKey = item.optString("iconKey", "bolt").take(MAX_ICON_KEY_LENGTH),
+                widgetLabel = item.optStringOrNull("widgetLabel")?.take(ShortcutDefinition.MAX_WIDGET_LABEL_LENGTH),
                 accentColor = enumValue(item.optString("accentColor"), ShortcutAccentColor.BLUE),
                 category = enumValue(item.optString("category"), ShortcutCategory.OTHER),
                 trigger = decodeTrigger(item.optJSONObject("trigger")) ?: return null,
@@ -310,6 +312,7 @@ class SavedShortcutStore(
             when (action) {
                 is ShortcutAction.OpenApplication -> {
                     put("package", encodeInput(action.packageName))
+                    action.searchQuery?.let { put("searchQuery", encodeInput(it)) }
                 }
 
                 is ShortcutAction.OpenWebsite -> {
@@ -387,7 +390,10 @@ class SavedShortcutStore(
             val value = item ?: return null
             when (enumOrNull<com.branlly.pocket.domain.model.ActionKind>(value.optString("type"))) {
                 com.branlly.pocket.domain.model.ActionKind.OPEN_APPLICATION -> {
-                    ShortcutAction.OpenApplication(decodeStringInput(value.optJSONObject("package")) ?: return null)
+                    ShortcutAction.OpenApplication(
+                        packageName = decodeStringInput(value.optJSONObject("package")) ?: return null,
+                        searchQuery = value.optJSONObject("searchQuery")?.let(::decodeStringInput),
+                    )
                 }
 
                 com.branlly.pocket.domain.model.ActionKind.OPEN_WEBSITE -> {
@@ -646,7 +652,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 3
+        private const val CURRENT_STORAGE_VERSION = 5
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"

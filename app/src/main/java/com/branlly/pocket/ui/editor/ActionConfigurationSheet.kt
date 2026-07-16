@@ -57,10 +57,11 @@ fun ActionConfigurationSheet(
 ) {
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()
-                .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .navigationBarsPadding()
+                    .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
         ) {
             Column {
@@ -69,39 +70,71 @@ fun ActionConfigurationSheet(
             }
             HorizontalDivider()
             when (val action = node.action) {
-                is ShortcutAction.OpenApplication -> ApplicationForm(action, onActionChange)
-                is ShortcutAction.SetVolume -> VolumeForm(action, onActionChange)
-                is ShortcutAction.SetBrightness -> BrightnessForm(action, onActionChange)
-                is ShortcutAction.Wait -> WaitForm(action, onActionChange)
-                is ShortcutAction.SetSoundMode -> SoundModeForm(action, onActionChange)
-                is ShortcutAction.OpenSettings -> SettingsForm(action, onActionChange)
-                is ShortcutAction.OpenRoute -> RouteForm(action, onActionChange)
-                else -> Text(
-                    "Le formulaire détaillé de cette action sera ajouté dans la prochaine étape.",
-                    style = MaterialTheme.typography.bodyMedium,
-                )
+                is ShortcutAction.OpenApplication -> {
+                    ApplicationForm(action, onActionChange)
+                }
+
+                is ShortcutAction.SetVolume -> {
+                    VolumeForm(action, onActionChange)
+                }
+
+                is ShortcutAction.SetBrightness -> {
+                    BrightnessForm(action, onActionChange)
+                }
+
+                is ShortcutAction.Wait -> {
+                    WaitForm(action, onActionChange)
+                }
+
+                is ShortcutAction.SetSoundMode -> {
+                    SoundModeForm(action, onActionChange)
+                }
+
+                is ShortcutAction.OpenSettings -> {
+                    SettingsForm(action, onActionChange)
+                }
+
+                is ShortcutAction.OpenRoute -> {
+                    RouteForm(action, onActionChange)
+                }
+
+                else -> {
+                    Text(
+                        "Le formulaire détaillé de cette action sera ajouté dans la prochaine étape.",
+                        style = MaterialTheme.typography.bodyMedium,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (ShortcutAction) -> Unit) {
+private fun ApplicationForm(
+    action: ShortcutAction.OpenApplication,
+    onChange: (ShortcutAction) -> Unit,
+) {
     val context = LocalContext.current
     val applications by produceState<List<InstalledApplication>>(initialValue = emptyList(), context) {
-        value = withContext(Dispatchers.IO) {
-            InstalledApplicationCatalog(context.applicationContext).load()
-        }
+        value =
+            withContext(Dispatchers.IO) {
+                InstalledApplicationCatalog(context.applicationContext).load()
+            }
     }
     var query by remember { mutableStateOf("") }
     val selectedPackage = (action.packageName as? InputValue.Fixed<String>)?.value
     val mode = if (action.packageName is InputValue.Fixed) ValueMode.FIXED else ValueMode.ASK_AT_RUNTIME
-    val filtered = remember(applications, query) {
-        val normalized = query.trim()
-        if (normalized.isEmpty()) applications else applications.filter {
-            it.label.contains(normalized, ignoreCase = true)
+    val filtered =
+        remember(applications, query) {
+            val normalized = query.trim()
+            if (normalized.isEmpty()) {
+                applications
+            } else {
+                applications.filter {
+                    it.label.contains(normalized, ignoreCase = true)
+                }
+            }
         }
-    }
 
     ChoiceRow(
         label = "Application",
@@ -109,14 +142,29 @@ private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (S
         selected = mode,
         text = { if (it == ValueMode.FIXED) "Toujours utiliser" else "Demander au lancement" },
         onSelected = { selectedMode ->
-            val value: InputValue<String> = if (selectedMode == ValueMode.FIXED) {
-                selectedPackage?.let { InputValue.Fixed(it) } ?: InputValue.AskAtRuntime
-            } else {
-                InputValue.AskAtRuntime
-            }
+            val value: InputValue<String> =
+                if (selectedMode == ValueMode.FIXED) {
+                    selectedPackage?.let { InputValue.Fixed(it) } ?: InputValue.AskAtRuntime
+                } else {
+                    InputValue.AskAtRuntime
+                }
             onChange(action.copy(packageName = value))
         },
     )
+    if (selectedPackage != null) {
+        val title = (action.searchQuery as? InputValue.Fixed<String>)?.value.orEmpty()
+        OutlinedTextField(
+            value = title,
+            onValueChange = { value ->
+                val normalized = value.take(MAX_MEDIA_SEARCH_LENGTH)
+                onChange(action.copy(searchQuery = normalized.takeIf(String::isNotBlank)?.let { InputValue.Fixed(it) }))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Titre à rechercher (facultatif)") },
+            supportingText = { Text("L’application choisie ouvrira sa recherche si elle la prend en charge.") },
+            singleLine = true,
+        )
+    }
     if (mode == ValueMode.FIXED || selectedPackage == null) {
         OutlinedTextField(
             value = query,
@@ -136,15 +184,19 @@ private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (S
             ) {
                 items(filtered, key = InstalledApplication::packageName) { application ->
                     Surface(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clickable { onChange(action.copy(packageName = InputValue.Fixed(application.packageName))) },
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
-                        color = if (application.packageName == selectedPackage) {
-                            MaterialTheme.colorScheme.primaryContainer
-                        } else {
-                            MaterialTheme.colorScheme.surfaceVariant
-                        },
+                        modifier =
+                            Modifier
+                                .fillMaxWidth()
+                                .clickable { onChange(action.copy(packageName = InputValue.Fixed(application.packageName))) },
+                        shape =
+                            androidx.compose.foundation.shape
+                                .RoundedCornerShape(12.dp),
+                        color =
+                            if (application.packageName == selectedPackage) {
+                                MaterialTheme.colorScheme.primaryContainer
+                            } else {
+                                MaterialTheme.colorScheme.surfaceVariant
+                            },
                     ) {
                         Text(application.label, modifier = Modifier.padding(14.dp), fontWeight = FontWeight.Medium)
                     }
@@ -155,9 +207,13 @@ private fun ApplicationForm(action: ShortcutAction.OpenApplication, onChange: (S
 }
 
 private const val MAX_SEARCH_LENGTH = 80
+private const val MAX_MEDIA_SEARCH_LENGTH = 120
 
 @Composable
-private fun VolumeForm(action: ShortcutAction.SetVolume, onChange: (ShortcutAction) -> Unit) {
+private fun VolumeForm(
+    action: ShortcutAction.SetVolume,
+    onChange: (ShortcutAction) -> Unit,
+) {
     ChoiceRow(
         label = "Type de volume",
         choices = VolumeStream.entries,
@@ -178,7 +234,10 @@ private fun VolumeForm(action: ShortcutAction.SetVolume, onChange: (ShortcutActi
 }
 
 @Composable
-private fun BrightnessForm(action: ShortcutAction.SetBrightness, onChange: (ShortcutAction) -> Unit) {
+private fun BrightnessForm(
+    action: ShortcutAction.SetBrightness,
+    onChange: (ShortcutAction) -> Unit,
+) {
     PercentageInput(
         label = "Niveau de luminosité",
         value = action.percent,
@@ -217,7 +276,10 @@ private fun PercentageInput(
 }
 
 @Composable
-private fun WaitForm(action: ShortcutAction.Wait, onChange: (ShortcutAction) -> Unit) {
+private fun WaitForm(
+    action: ShortcutAction.Wait,
+    onChange: (ShortcutAction) -> Unit,
+) {
     val seconds = (action.durationMillis / 1_000f).coerceIn(1f, 300f)
     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
         Text("Durée", fontWeight = FontWeight.SemiBold)
@@ -237,7 +299,10 @@ private fun WaitForm(action: ShortcutAction.Wait, onChange: (ShortcutAction) -> 
 }
 
 @Composable
-private fun SoundModeForm(action: ShortcutAction.SetSoundMode, onChange: (ShortcutAction) -> Unit) {
+private fun SoundModeForm(
+    action: ShortcutAction.SetSoundMode,
+    onChange: (ShortcutAction) -> Unit,
+) {
     ChoiceRow(
         label = "Mode sonore",
         choices = SoundMode.entries,
@@ -248,7 +313,10 @@ private fun SoundModeForm(action: ShortcutAction.SetSoundMode, onChange: (Shortc
 }
 
 @Composable
-private fun SettingsForm(action: ShortcutAction.OpenSettings, onChange: (ShortcutAction) -> Unit) {
+private fun SettingsForm(
+    action: ShortcutAction.OpenSettings,
+    onChange: (ShortcutAction) -> Unit,
+) {
     ChoiceRow(
         label = "Écran de réglages",
         choices = SettingsPanel.entries,
@@ -259,11 +327,15 @@ private fun SettingsForm(action: ShortcutAction.OpenSettings, onChange: (Shortcu
 }
 
 @Composable
-private fun RouteForm(action: ShortcutAction.OpenRoute, onChange: (ShortcutAction) -> Unit) {
+private fun RouteForm(
+    action: ShortcutAction.OpenRoute,
+    onChange: (ShortcutAction) -> Unit,
+) {
     val context = LocalContext.current
     val launcher = RouteLauncher(context)
-    val selectedPackage = (action.navigationPackage as? InputValue.Fixed<String>)?.value
-        ?: NavigationApps.GOOGLE_MAPS
+    val selectedPackage =
+        (action.navigationPackage as? InputValue.Fixed<String>)?.value
+            ?: NavigationApps.GOOGLE_MAPS
     val destination = (action.destination as? InputValue.Fixed<String>)?.value.orEmpty()
     val destinationMode = if (action.destination is InputValue.Fixed) ValueMode.FIXED else ValueMode.ASK_AT_RUNTIME
 
@@ -346,7 +418,11 @@ private fun <T> ChoiceRow(
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
@@ -354,32 +430,37 @@ private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean
 }
 
 private enum class PercentageMode { FIXED, ASK_AT_RUNTIME }
+
 private enum class ValueMode { FIXED, ASK_AT_RUNTIME }
 
-private fun VolumeStream.label() = when (this) {
-    VolumeStream.MEDIA -> "Multimédia"
-    VolumeStream.RING -> "Sonnerie"
-    VolumeStream.ALARM -> "Alarme"
-}
+private fun VolumeStream.label() =
+    when (this) {
+        VolumeStream.MEDIA -> "Multimédia"
+        VolumeStream.RING -> "Sonnerie"
+        VolumeStream.ALARM -> "Alarme"
+    }
 
-private fun SoundMode.label() = when (this) {
-    SoundMode.NORMAL -> "Normal"
-    SoundMode.VIBRATE -> "Vibreur"
-    SoundMode.SILENT -> "Silencieux"
-    SoundMode.DO_NOT_DISTURB -> "Ne pas déranger"
-}
+private fun SoundMode.label() =
+    when (this) {
+        SoundMode.NORMAL -> "Normal"
+        SoundMode.VIBRATE -> "Vibreur"
+        SoundMode.SILENT -> "Silencieux"
+        SoundMode.DO_NOT_DISTURB -> "Ne pas déranger"
+    }
 
-private fun TransportMode.label() = when (this) {
-    TransportMode.DRIVING -> "Voiture"
-    TransportMode.WALKING -> "À pied"
-    TransportMode.BICYCLING -> "Vélo"
-    TransportMode.TRANSIT -> "Transports"
-}
+private fun TransportMode.label() =
+    when (this) {
+        TransportMode.DRIVING -> "Voiture"
+        TransportMode.WALKING -> "À pied"
+        TransportMode.BICYCLING -> "Vélo"
+        TransportMode.TRANSIT -> "Transports"
+    }
 
-private fun SettingsPanel.label() = when (this) {
-    SettingsPanel.BLUETOOTH -> "Bluetooth"
-    SettingsPanel.WIFI -> "Wi-Fi"
-    SettingsPanel.BATTERY -> "Batterie"
-    SettingsPanel.DISPLAY -> "Affichage"
-    SettingsPanel.SOUND -> "Son"
-}
+private fun SettingsPanel.label() =
+    when (this) {
+        SettingsPanel.BLUETOOTH -> "Bluetooth"
+        SettingsPanel.WIFI -> "Wi-Fi"
+        SettingsPanel.BATTERY -> "Batterie"
+        SettingsPanel.DISPLAY -> "Affichage"
+        SettingsPanel.SOUND -> "Son"
+    }

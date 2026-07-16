@@ -62,6 +62,8 @@ import com.branlly.pocket.platform.android.ApplicationLaunchResult
 import com.branlly.pocket.platform.android.ApplicationLauncher
 import com.branlly.pocket.platform.android.RouteLaunchResult
 import com.branlly.pocket.platform.android.RouteLauncher
+import com.branlly.pocket.platform.android.ShortcutExecutionResult
+import com.branlly.pocket.platform.android.ShortcutExecutor
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
@@ -69,6 +71,9 @@ import com.branlly.pocket.ui.editor.PresentationPickerSheet
 import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
 import com.branlly.pocket.ui.voice.VoiceCommandControl
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 @Composable
 fun BranllyPocketApp(viewModel: EditorViewModel = viewModel()) {
@@ -351,6 +356,13 @@ private fun EditorScreen(
                     label = { Text("Nom du raccourci") },
                     singleLine = true,
                 )
+                OutlinedTextField(
+                    value = draft.widgetLabel.orEmpty(),
+                    onValueChange = viewModel::updateWidgetLabel,
+                    modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                    label = { Text("Texte du widget (facultatif, 4 caractères)") },
+                    singleLine = true,
+                )
                 OutlinedButton(onClick = viewModel::showPresentationPicker, modifier = Modifier.padding(top = 8.dp)) {
                     Text("Icône et couleur")
                 }
@@ -611,27 +623,26 @@ private fun launchSavedShortcut(
     context: Context,
     shortcut: ShortcutDefinition,
 ) {
-    val action = shortcut.nodes.firstOrNull { it.enabled }?.action
-    val message =
-        when (action) {
-            is ShortcutAction.OpenRoute -> {
-                routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+    CoroutineScope(Dispatchers.Main.immediate).launch {
+        when (val result = ShortcutExecutor(context.applicationContext).execute(shortcut)) {
+            ShortcutExecutionResult.Completed -> {
+                Unit
             }
 
-            is ShortcutAction.OpenApplication -> {
-                val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
-                if (packageName == null) {
-                    "Cette action demande une valeur au lancement."
-                } else {
-                    applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
-                }
+            is ShortcutExecutionResult.Failed -> {
+                Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
             }
 
-            else -> {
-                "Ce raccourci contient une première action qui n’est pas encore exécutable."
+            is ShortcutExecutionResult.UnsupportedAction -> {
+                Toast
+                    .makeText(
+                        context,
+                        "L’action ${result.kind} n’est pas encore exécutable.",
+                        Toast.LENGTH_LONG,
+                    ).show()
             }
         }
-    if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    }
 }
 
 private fun testShortcut(
@@ -652,7 +663,8 @@ private fun testShortcut(
 
             is ShortcutAction.OpenApplication -> {
                 val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
-                applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
+                val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
+                applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName, searchQuery))
             }
 
             else -> {

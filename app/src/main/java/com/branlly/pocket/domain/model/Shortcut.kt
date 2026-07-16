@@ -33,6 +33,7 @@ data class ShortcutDefinition(
     val id: ShortcutId = ShortcutId.new(),
     val name: String,
     val iconKey: String = "bolt",
+    val widgetLabel: String? = null,
     val accentColor: ShortcutAccentColor = ShortcutAccentColor.BLUE,
     val category: ShortcutCategory = ShortcutCategory.OTHER,
     val trigger: Trigger,
@@ -45,6 +46,7 @@ data class ShortcutDefinition(
 ) {
     init {
         require(name.length <= MAX_NAME_LENGTH)
+        require(widgetLabel == null || widgetLabel.length in 1..MAX_WIDGET_LABEL_LENGTH)
         require(nodes.size <= MAX_ACTION_COUNT)
         require(schemaVersion > 0)
         require(nodes.map(ActionNode::id).distinct().size == nodes.size) { "Node IDs must be unique" }
@@ -53,6 +55,7 @@ data class ShortcutDefinition(
     companion object {
         const val CURRENT_SCHEMA_VERSION = 1
         const val MAX_NAME_LENGTH = 80
+        const val MAX_WIDGET_LABEL_LENGTH = 4
         const val MAX_ACTION_COUNT = 100
     }
 }

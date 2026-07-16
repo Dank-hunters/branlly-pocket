@@ -152,6 +152,16 @@ class EditorViewModel(
         state.copy(draft = state.draft?.copy(iconKey = iconKey, accentColor = accentColor))
     }
 
+    fun updateWidgetLabel(label: String) =
+        _state.update { state ->
+            state.copy(
+                draft =
+                    state.draft?.copy(
+                        widgetLabel = label.trim().take(ShortcutDefinition.MAX_WIDGET_LABEL_LENGTH).ifBlank { null },
+                    ),
+            )
+        }
+
     fun showTriggerConfiguration() =
         _state.update {
             it.copy(triggerConfigurationVisible = true, libraryVisible = false, selectedNodeId = null)

@@ -93,7 +93,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
                 preferences.save(
                     widgetId,
                     shortcuts.take(DEFAULT_SHORTCUT_COUNT).map { shortcut ->
-                        WidgetShortcutSlot(shortcut.id.value, shortcut.name, shortcut.iconKey, shortcut.accentColor)
+                        WidgetShortcutSlot(shortcut.id.value, shortcut.widgetLabel.orEmpty(), shortcut.iconKey, shortcut.accentColor)
                     },
                 )
             }
@@ -119,7 +119,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
                         views.setViewVisibility(viewId, android.view.View.INVISIBLE)
                     } else {
                         views.setViewVisibility(viewId, android.view.View.VISIBLE)
-                        views.setTextViewText(viewId, shortcut.iconKey.widgetGlyph())
+                        views.setTextViewText(viewId, shortcut.label.ifBlank { shortcut.iconKey.widgetGlyph() })
                         views.setTextColor(viewId, shortcut.accentColor.widgetColor())
                         views.setOnClickPendingIntent(viewId, runIntent(context, widgetId, shortcut.id))
                     }
@@ -165,15 +165,18 @@ class BranllyPocketWidget : AppWidgetProvider() {
             manager.getAppWidgetIds(ComponentName(context, BranllyPocketWidget::class.java)).forEach { widgetId ->
                 val retained =
                     preferences.shortcutIds(widgetId).mapNotNull { id ->
-                        byId[id]?.let { shortcut -> WidgetShortcutSlot(id, shortcut.name, shortcut.iconKey, shortcut.accentColor) }
+                        byId[id]?.let { shortcut ->
+                            WidgetShortcutSlot(id, shortcut.widgetLabel.orEmpty(), shortcut.iconKey, shortcut.accentColor)
+                        }
                     }
                 val additions =
                     available
                         .asSequence()
                         .filterNot { shortcut -> retained.any { it.id == shortcut.id.value } }
                         .take(MAX_SHORTCUT_COUNT - retained.size)
-                        .map { shortcut -> WidgetShortcutSlot(shortcut.id.value, shortcut.name, shortcut.iconKey, shortcut.accentColor) }
-                        .toList()
+                        .map { shortcut ->
+                            WidgetShortcutSlot(shortcut.id.value, shortcut.widgetLabel.orEmpty(), shortcut.iconKey, shortcut.accentColor)
+                        }.toList()
                 preferences.save(widgetId, retained + additions)
                 updateWidget(context, manager, widgetId)
             }
@@ -184,20 +187,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
             shortcutId: String,
         ) {
             val shortcut = SavedShortcutStore(context).shortcuts.first().firstOrNull { it.id.value == shortcutId } ?: return
-            when (val action = shortcut.widgetExecutableAction()) {
-                is ShortcutAction.OpenRoute -> {
-                    RouteLauncher(context).launch(action)
-                }
-
-                is ShortcutAction.OpenApplication -> {
-                    val packageName = (action.packageName as? InputValue.Fixed<String>)?.value ?: return
-                    ApplicationLauncher(context).launch(packageName)
-                }
-
-                else -> {
-                    return
-                }
-            }
+            ShortcutExecutor(context).execute(shortcut)
         }
 
         private const val DEFAULT_SHORTCUT_COUNT = 3
