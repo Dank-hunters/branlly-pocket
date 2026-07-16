@@ -74,10 +74,12 @@ data class ActionNode(
     val enabled: Boolean = true,
     val conditions: List<Condition> = emptyList(),
     val errorStrategy: ErrorStrategy = ErrorStrategy.Stop,
+    val delayBeforeMillis: Long = 0L,
     val timeoutMillis: Long? = null,
 ) {
     init {
         require(conditions.size <= 20)
+        require(delayBeforeMillis in 0L..86_400_000L)
         require(timeoutMillis == null || timeoutMillis in 100L..300_000L)
     }
 }

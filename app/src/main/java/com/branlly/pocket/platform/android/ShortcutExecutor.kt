@@ -7,6 +7,7 @@ import android.media.AudioManager
 import android.net.Uri
 import android.provider.Settings
 import com.branlly.pocket.domain.model.ActionNode
+import com.branlly.pocket.domain.model.ErrorStrategy
 import com.branlly.pocket.domain.model.ExecutionTiming
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.SettingsPanel
@@ -21,11 +22,12 @@ class ShortcutExecutor(
     private val context: Context,
 ) {
     suspend fun execute(shortcut: ShortcutDefinition): ShortcutExecutionResult {
-        val actions = shortcut.nodes.filter(ActionNode::enabled).map(ActionNode::action)
-        actions.forEachIndexed { index, action ->
-            val result = execute(action)
-            if (result !is ShortcutExecutionResult.Completed) return result
-            val delayMillis = ExecutionTiming.automaticDelayAfter(action, actions.getOrNull(index + 1))
+        val nodes = shortcut.nodes.filter(ActionNode::enabled)
+        nodes.forEachIndexed { index, node ->
+            if (node.delayBeforeMillis > 0) delay(node.delayBeforeMillis)
+            val result = executeWithStrategy(node)
+            if (result !is ShortcutExecutionResult.Completed && node.errorStrategy is ErrorStrategy.Stop) return result
+            val delayMillis = ExecutionTiming.automaticDelayAfter(node.action, nodes.getOrNull(index + 1)?.action)
             if (delayMillis > 0) delay(delayMillis)
         }
         val finalNode =
@@ -42,6 +44,17 @@ class ShortcutExecutor(
             return execute(finalAction)
         }
         return ShortcutExecutionResult.Completed
+    }
+
+    private suspend fun executeWithStrategy(node: ActionNode): ShortcutExecutionResult {
+        var result = execute(node.action)
+        val retry = node.errorStrategy as? ErrorStrategy.Retry ?: return result
+        repeat(retry.attempts - 1) {
+            if (result is ShortcutExecutionResult.Completed) return result
+            if (retry.delayMillis > 0) delay(retry.delayMillis)
+            result = execute(node.action)
+        }
+        return result
     }
 
     private suspend fun execute(action: ShortcutAction): ShortcutExecutionResult =

@@ -1,7 +1,10 @@
 package com.branlly.pocket.ui
 
 import android.content.Context
+import android.content.Intent
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -104,6 +107,19 @@ private fun HomeScreen(
     viewModel: EditorViewModel,
 ) {
     val context = LocalContext.current
+    val importLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+            uri?.let { selected ->
+                runCatching {
+                    context.contentResolver
+                        .openInputStream(selected)
+                        ?.bufferedReader()
+                        ?.use { it.readText() }
+                        .orEmpty()
+                }.onSuccess(viewModel::importRoutine)
+                    .onFailure { viewModel.importRoutine("") }
+            }
+        }
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
         contentPadding =
@@ -138,8 +154,12 @@ private fun HomeScreen(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
-                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
-                    Box(contentAlignment = Alignment.Center) { Text("⋯", style = MaterialTheme.typography.titleLarge) }
+                Surface(
+                    modifier = Modifier.size(40.dp).clickable { importLauncher.launch(arrayOf("application/json", "text/plain")) },
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.surfaceVariant,
+                ) {
+                    Box(contentAlignment = Alignment.Center) { Text("⇩", style = MaterialTheme.typography.titleLarge) }
                 }
             }
         }
@@ -230,6 +250,23 @@ private fun HomeScreen(
                             shortcut = shortcut,
                             onLaunch = { launchSavedShortcut(context, shortcut) },
                             onEdit = { viewModel.editSaved(shortcut) },
+                            onPin = {
+                                com.branlly.pocket.platform.android.PinnedRoutineShortcut.request(
+                                    context,
+                                    shortcut.id.value,
+                                    shortcut.name,
+                                )
+                            },
+                            onExport = {
+                                context.startActivity(
+                                    Intent.createChooser(
+                                        Intent(
+                                            Intent.ACTION_SEND,
+                                        ).setType("application/json").putExtra(Intent.EXTRA_TEXT, viewModel.exportRoutine(shortcut)),
+                                        "Exporter ${shortcut.name}",
+                                    ),
+                                )
+                            },
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -245,6 +282,8 @@ private fun CompactShortcutTile(
     shortcut: ShortcutDefinition,
     onLaunch: () -> Unit,
     onEdit: () -> Unit,
+    onPin: () -> Unit,
+    onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Card(
@@ -282,12 +321,26 @@ private fun CompactShortcutTile(
                     style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
-                Text(
-                    "⋯",
-                    modifier = Modifier.clickable(onClick = onEdit).padding(horizontal = 6.dp),
-                    style = MaterialTheme.typography.titleMedium,
-                    color = accent,
-                )
+                Row {
+                    Text(
+                        "⌑",
+                        modifier = Modifier.clickable(onClick = onPin).padding(horizontal = 6.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = accent,
+                    )
+                    Text(
+                        "⇧",
+                        modifier = Modifier.clickable(onClick = onExport).padding(horizontal = 6.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = accent,
+                    )
+                    Text(
+                        "⋯",
+                        modifier = Modifier.clickable(onClick = onEdit).padding(horizontal = 6.dp),
+                        style = MaterialTheme.typography.titleMedium,
+                        color = accent,
+                    )
+                }
             }
         }
     }
@@ -446,8 +499,23 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
             viewModel::useDepartureBlueprint,
         )
         MethodCard("TRAJET", "Mode voiture", "Bluetooth → volume → musique → navigation", false, viewModel::useCarBlueprint)
-        listOf("Départ au travail", "Mode nuit", "Sport", "Réunion", "Batterie faible", "Routine du matin").forEach { title ->
-            MethodCard("BIENTÔT", title, "Blueprint local en préparation", false, {})
+        listOf(
+            "Départ au travail",
+            "Retour à la maison",
+            "Mode concentration",
+            "Salle de sport",
+            "Coucher",
+            "Voyage",
+            "Musique",
+            "Mode conduite",
+            "Appel rapide",
+        ).forEach { title ->
+            MethodCard(
+                "MODÈLE",
+                title,
+                "Point de départ local, à compléter avant l’enregistrement.",
+                false,
+            ) { viewModel.useTemplate(title) }
         }
     }
 }
@@ -537,6 +605,9 @@ private fun EditorScreen(
                     onEdit = { viewModel.showConfiguration(node.id) },
                     onToggle = { viewModel.toggle(node.id) },
                     onDuplicate = { viewModel.duplicate(node.id) },
+                    onDelay = { viewModel.cycleDelayBefore(node.id) },
+                    onContinueOnError = { viewModel.toggleContinueOnError(node.id) },
+                    onTest = { testShortcut(context, draft.copy(nodes = listOf(node))) },
                     onDelete = { viewModel.remove(node.id) },
                 )
                 InsertButton { viewModel.showLibrary(index + 1) }
@@ -677,6 +748,9 @@ private fun ActionCard(
     onEdit: () -> Unit,
     onToggle: () -> Unit,
     onDuplicate: () -> Unit,
+    onDelay: () -> Unit,
+    onContinueOnError: () -> Unit,
+    onTest: () -> Unit,
     onDelete: () -> Unit,
 ) {
     Card(
@@ -708,7 +782,26 @@ private fun ActionCard(
                 Button(onClick = onEdit) { Text("Modifier") }
                 Spacer(Modifier.weight(1f))
             }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(2.dp)) {
+                TextButton(onClick = onDelay) {
+                    Text(
+                        if (node.delayBeforeMillis ==
+                            0L
+                        ) {
+                            "Délai : aucun"
+                        } else {
+                            "Délai : ${node.delayBeforeMillis / 1_000} s"
+                        },
+                    )
+                }
+                TextButton(onClick = onContinueOnError) {
+                    Text(
+                        if (node.errorStrategy is com.branlly.pocket.domain.model.ErrorStrategy.Stop) "Arrêter si échec" else "Continuer si échec",
+                    )
+                }
+            }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                TextButton(onClick = onTest) { Text("Tester") }
                 TextButton(onClick = onDuplicate) { Text("Dupliquer") }
                 TextButton(onClick = onDelete) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
             }

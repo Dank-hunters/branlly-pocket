@@ -122,6 +122,41 @@ class EditorViewModel(
         }
     }
 
+    fun useTemplate(name: String) {
+        val category =
+            when (name) {
+                "Départ au travail", "Retour à la maison", "Voyage", "Mode conduite" -> ShortcutCategory.TRAVEL
+                "Musique", "Salle de sport", "Coucher", "Mode concentration" -> ShortcutCategory.WELLBEING
+                else -> ShortcutCategory.COMMUNICATION
+            }
+        val actions =
+            when (name) {
+                "Mode concentration", "Coucher" -> {
+                    listOf(ActionNode(action = ShortcutAction.SetSoundMode(com.branlly.pocket.domain.model.SoundMode.DO_NOT_DISTURB)))
+                }
+
+                "Mode conduite" -> {
+                    listOf(
+                        ActionNode(action = ShortcutAction.SetVolume(VolumeStream.MEDIA, InputValue.Fixed(70))),
+                        ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime)),
+                        ActionNode(action = ShortcutAction.OpenRoute(InputValue.AskAtRuntime, InputValue.AskAtRuntime)),
+                    )
+                }
+
+                else -> {
+                    listOf(ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime)))
+                }
+            }
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(name = name, category = category, trigger = Trigger.ManualButton, nodes = actions),
+                selectedNodeId = actions.firstOrNull()?.id,
+                savedShortcuts = state.savedShortcuts,
+            )
+        }
+    }
+
     fun useCarBlueprint() {
         _state.value =
             EditorUiState(
@@ -141,6 +176,20 @@ class EditorViewModel(
                     ),
             )
     }
+
+    fun importRoutine(raw: String) {
+        val imported = store.import(raw)
+        if (imported == null) {
+            _state.update { it.copy(message = "Fichier Branlly Pocket invalide ou non pris en charge.") }
+        } else {
+            viewModelScope.launch {
+                store.save(imported)
+                _state.update { it.copy(message = "Raccourci importé : ${imported.name}") }
+            }
+        }
+    }
+
+    fun exportRoutine(shortcut: ShortcutDefinition): String = store.export(shortcut)
 
     fun showStart() = _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts) }
 
@@ -243,6 +292,41 @@ class EditorViewModel(
     fun toggle(nodeId: NodeId) =
         updateNodes { nodes ->
             nodes.map { if (it.id == nodeId) it.copy(enabled = !it.enabled) else it }
+        }
+
+    fun cycleDelayBefore(nodeId: NodeId) =
+        updateNodes { nodes ->
+            nodes.map {
+                if (it.id ==
+                    nodeId
+                ) {
+                    it.copy(
+                        delayBeforeMillis =
+                            when (it.delayBeforeMillis) {
+                                0L -> 2_000L
+                                2_000L -> 5_000L
+                                else -> 0L
+                            },
+                    )
+                } else {
+                    it
+                }
+            }
+        }
+
+    fun toggleContinueOnError(nodeId: NodeId) =
+        updateNodes { nodes ->
+            nodes.map {
+                if (it.id ==
+                    nodeId
+                ) {
+                    it.copy(
+                        errorStrategy = if (it.errorStrategy is com.branlly.pocket.domain.model.ErrorStrategy.Stop) com.branlly.pocket.domain.model.ErrorStrategy.Continue else com.branlly.pocket.domain.model.ErrorStrategy.Stop,
+                    )
+                } else {
+                    it
+                }
+            }
         }
 
     fun move(

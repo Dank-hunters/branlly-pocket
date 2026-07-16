@@ -59,6 +59,22 @@ class SavedShortcutStore(
         }
     }
 
+    /** Stable local transfer envelope; callers can share the resulting JSON without app-private state. */
+    fun export(shortcut: ShortcutDefinition): String =
+        JSONObject()
+            .put("format", "branlly-pocket-shortcut")
+            .put("version", 1)
+            .put("shortcut", encodeDefinition(shortcut))
+            .toString()
+
+    /** Invalid or unsupported documents are rejected without altering persisted routines. */
+    fun import(raw: String): ShortcutDefinition? =
+        runCatching {
+            val envelope = JSONObject(raw)
+            if (envelope.optString("format") != "branlly-pocket-shortcut" || envelope.optInt("version") != 1) return null
+            decodeDefinition(envelope.optJSONObject("shortcut"))?.copy(id = ShortcutId.new())
+        }.getOrNull()
+
     suspend fun delete(id: ShortcutId) {
         dataStore.edit { preferences ->
             preferences[SHORTCUTS] =
@@ -174,6 +190,7 @@ class SavedShortcutStore(
             .put("enabled", node.enabled)
             .put("conditions", JSONArray().apply { node.conditions.forEach { put(encodeCondition(it)) } })
             .put("errorStrategy", encodeErrorStrategy(node.errorStrategy))
+            .put("delayBeforeMillis", node.delayBeforeMillis)
             .put("timeoutMillis", node.timeoutMillis)
 
     private fun decodeNode(item: JSONObject?): ActionNode? =
@@ -193,6 +210,7 @@ class SavedShortcutStore(
                         }
                     },
                 errorStrategy = decodeErrorStrategy(value.optJSONObject("errorStrategy")),
+                delayBeforeMillis = value.optLong("delayBeforeMillis").takeIf { it in 0L..86_400_000L } ?: 0L,
                 timeoutMillis = value.optLong("timeoutMillis").takeIf { it in 100L..300_000L },
             )
         }.getOrNull()
@@ -656,7 +674,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 7
+        private const val CURRENT_STORAGE_VERSION = 8
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"
