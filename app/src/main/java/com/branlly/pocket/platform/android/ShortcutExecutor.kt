@@ -20,6 +20,13 @@ class ShortcutExecutor(
             val delayMillis = ExecutionTiming.automaticDelayAfter(action, actions.getOrNull(index + 1))
             if (delayMillis > 0) delay(delayMillis)
         }
+        val finalAction =
+            shortcut.finalForegroundNodeId?.let { id ->
+                shortcut.nodes.firstOrNull { it.id == id && it.enabled }?.action
+            }
+        if (finalAction is ShortcutAction.OpenApplication || finalAction is ShortcutAction.OpenRoute) {
+            return execute(finalAction)
+        }
         return ShortcutExecutionResult.Completed
     }
 

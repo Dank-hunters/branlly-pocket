@@ -413,6 +413,10 @@ private fun EditorScreen(
 ) {
     val draft = state.draft ?: return
     val context = LocalContext.current
+    val finalCandidates =
+        draft.nodes.filter {
+            it.enabled && (it.action is ShortcutAction.OpenApplication || it.action is ShortcutAction.OpenRoute)
+        }
     val automaticPauseCount =
         draft.nodes.filter(ActionNode::enabled).map(ActionNode::action).zipWithNext().count { (current, next) ->
             (current is ShortcutAction.OpenApplication || current is ShortcutAction.OpenRoute) &&
@@ -493,6 +497,21 @@ private fun EditorScreen(
                             modifier = Modifier.padding(14.dp),
                             style = MaterialTheme.typography.bodySmall,
                         )
+                    }
+                }
+            }
+            if (finalCandidates.size > 1) {
+                item {
+                    Text("Application affichée à la fin", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.padding(top = 6.dp)) {
+                        item {
+                            OutlinedButton(onClick = { viewModel.updateFinalForegroundNode(null) }) { Text("Dernière action") }
+                        }
+                        items(finalCandidates, key = { it.id.value }) { node ->
+                            OutlinedButton(onClick = { viewModel.updateFinalForegroundNode(node.id) }) {
+                                Text(node.action.summary())
+                            }
+                        }
                     }
                 }
             }

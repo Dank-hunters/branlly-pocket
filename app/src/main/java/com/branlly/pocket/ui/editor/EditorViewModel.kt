@@ -162,6 +162,11 @@ class EditorViewModel(
             )
         }
 
+    fun updateFinalForegroundNode(nodeId: NodeId?) =
+        _state.update { state ->
+            state.copy(draft = state.draft?.copy(finalForegroundNodeId = nodeId))
+        }
+
     fun showTriggerConfiguration() =
         _state.update {
             it.copy(triggerConfigurationVisible = true, libraryVisible = false, selectedNodeId = null)

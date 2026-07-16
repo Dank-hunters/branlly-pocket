@@ -97,6 +97,7 @@ class SavedShortcutStore(
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
             .put("nodes", JSONArray().apply { definition.nodes.forEach { put(encodeNode(it)) } })
+            .put("finalForegroundNodeId", definition.finalForegroundNodeId?.value)
             .put("mode", definition.mode.name)
             .put("enabled", definition.enabled)
             .put("schemaVersion", definition.schemaVersion)
@@ -123,6 +124,7 @@ class SavedShortcutStore(
                             decodeNode(nodes.optJSONObject(index))?.let(::add)
                         }
                     },
+                finalForegroundNodeId = item.optStringOrNull("finalForegroundNodeId")?.let(::NodeId),
                 mode = enumValue(item.optString("mode"), EditorMode.SIMPLE),
                 enabled = item.optBoolean("enabled", false),
                 schemaVersion = item.optInt("schemaVersion", ShortcutDefinition.CURRENT_SCHEMA_VERSION),
@@ -652,7 +654,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 5
+        private const val CURRENT_STORAGE_VERSION = 6
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"

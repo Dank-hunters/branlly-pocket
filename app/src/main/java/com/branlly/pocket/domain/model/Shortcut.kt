@@ -38,6 +38,7 @@ data class ShortcutDefinition(
     val category: ShortcutCategory = ShortcutCategory.OTHER,
     val trigger: Trigger,
     val nodes: List<ActionNode>,
+    val finalForegroundNodeId: NodeId? = null,
     val mode: EditorMode = EditorMode.SIMPLE,
     val enabled: Boolean = false,
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
@@ -50,6 +51,7 @@ data class ShortcutDefinition(
         require(nodes.size <= MAX_ACTION_COUNT)
         require(schemaVersion > 0)
         require(nodes.map(ActionNode::id).distinct().size == nodes.size) { "Node IDs must be unique" }
+        require(finalForegroundNodeId == null || nodes.any { it.id == finalForegroundNodeId }) { "Final action must exist" }
     }
 
     companion object {
