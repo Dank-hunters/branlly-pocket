@@ -1,3 +1,7 @@
 <resources>
     <string name="app_name">Branlly Pocket</string>
+    <string name="widget_name">Raccourcis Branlly Pocket</string>
+    <string name="widget_description">Accédez à vos raccourcis Branlly Pocket.</string>
+    <string name="widget_open_menu">Ouvrir les raccourcis Branlly Pocket</string>
+    <string name="widget_close_menu">Fermer les raccourcis Branlly Pocket</string>
 </resources>

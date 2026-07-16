@@ -5,4 +5,26 @@
         <item name="android:colorAccent">#3559E0</item>
         <item name="android:windowActionModeOverlay">true</item>
     </style>
+
+    <style name="WidgetAction">
+        <item name="android:layout_width">42dp</item>
+        <item name="android:layout_height">42dp</item>
+        <item name="android:layout_margin">3dp</item>
+        <item name="android:background">@drawable/widget_action_background</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">#FFE2F7FF</item>
+        <item name="android:textSize">13sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
+
+    <style name="WidgetCenter">
+        <item name="android:layout_width">58dp</item>
+        <item name="android:layout_height">58dp</item>
+        <item name="android:layout_margin">2dp</item>
+        <item name="android:background">@drawable/widget_center_background</item>
+        <item name="android:gravity">center</item>
+        <item name="android:textColor">#FFE5E8FF</item>
+        <item name="android:textSize">25sp</item>
+        <item name="android:textStyle">bold</item>
+    </style>
 </resources>

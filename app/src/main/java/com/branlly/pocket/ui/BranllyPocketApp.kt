@@ -24,8 +24,8 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
@@ -48,9 +48,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.branlly.pocket.data.SavedApplicationShortcut
-import com.branlly.pocket.data.SavedRouteShortcut
-import com.branlly.pocket.data.SavedShortcut
 import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.model.ActionCategory
@@ -61,13 +58,13 @@ import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.domain.voice.LocalVoiceCommand
-import com.branlly.pocket.ui.editor.ActionConfigurationSheet
-import com.branlly.pocket.ui.editor.EditorUiState
-import com.branlly.pocket.ui.editor.EditorViewModel
 import com.branlly.pocket.platform.android.ApplicationLaunchResult
 import com.branlly.pocket.platform.android.ApplicationLauncher
 import com.branlly.pocket.platform.android.RouteLaunchResult
 import com.branlly.pocket.platform.android.RouteLauncher
+import com.branlly.pocket.ui.editor.ActionConfigurationSheet
+import com.branlly.pocket.ui.editor.EditorUiState
+import com.branlly.pocket.ui.editor.EditorViewModel
 import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
 import com.branlly.pocket.ui.voice.VoiceCommandControl
@@ -86,11 +83,16 @@ fun BranllyPocketApp(viewModel: EditorViewModel = viewModel()) {
 }
 
 @Composable
-private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
+private fun HomeScreen(
+    state: EditorUiState,
+    viewModel: EditorViewModel,
+) {
     val context = LocalContext.current
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
@@ -115,10 +117,20 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
         }
         item {
             VoiceCommandControl { command ->
-                val saved = when (command) {
-                    LocalVoiceCommand.NAVIGATION -> state.savedShortcuts.filterIsInstance<SavedRouteShortcut>().firstOrNull()
-                    LocalVoiceCommand.MUSIC -> state.savedShortcuts.filterIsInstance<SavedApplicationShortcut>().firstOrNull()
-                }
+                val saved =
+                    when (command) {
+                        LocalVoiceCommand.NAVIGATION -> {
+                            state.savedShortcuts.firstOrNull { shortcut ->
+                                shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenRoute }
+                            }
+                        }
+
+                        LocalVoiceCommand.MUSIC -> {
+                            state.savedShortcuts.firstOrNull { shortcut ->
+                                shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenApplication }
+                            }
+                        }
+                    }
                 if (saved != null) {
                     launchSavedShortcut(context, saved)
                 } else {
@@ -140,7 +152,7 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
             }
         } else {
             item { Text("Mes raccourcis", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) }
-            items(state.savedShortcuts, key = SavedShortcut::id) { shortcut ->
+            items(state.savedShortcuts, key = ShortcutDefinition::id) { shortcut ->
                 SavedShortcutCard(
                     shortcut = shortcut,
                     onLaunch = { launchSavedShortcut(context, shortcut) },
@@ -154,7 +166,7 @@ private fun HomeScreen(state: EditorUiState, viewModel: EditorViewModel) {
 
 @Composable
 private fun SavedShortcutCard(
-    shortcut: SavedShortcut,
+    shortcut: ShortcutDefinition,
     onLaunch: () -> Unit,
     onEdit: () -> Unit,
     onDelete: () -> Unit,
@@ -168,10 +180,10 @@ private fun SavedShortcutCard(
         Column(Modifier.fillMaxWidth().padding(18.dp)) {
             Text(shortcut.name, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
             Text(
-                when (shortcut) {
-                    is SavedRouteShortcut -> shortcut.destination
-                    is SavedApplicationShortcut -> "Ouvrir l’application musicale"
-                },
+                shortcut.nodes
+                    .firstOrNull()
+                    ?.action
+                    ?.summary() ?: "Aucune action",
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
             Text("Toucher pour lancer", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
@@ -187,7 +199,10 @@ private fun SavedShortcutCard(
             title = { Text("Supprimer ce raccourci ?") },
             text = { Text(shortcut.name) },
             confirmButton = {
-                TextButton(onClick = { confirmDelete = false; onDelete() }) {
+                TextButton(onClick = {
+                    confirmDelete = false
+                    onDelete()
+                }) {
                     Text("Supprimer", color = MaterialTheme.colorScheme.error)
                 }
             },
@@ -290,7 +305,10 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
+private fun EditorScreen(
+    state: EditorUiState,
+    viewModel: EditorViewModel,
+) {
     val draft = state.draft ?: return
     val context = LocalContext.current
     Scaffold(
@@ -313,7 +331,9 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
     ) { scaffoldPadding ->
         LazyColumn(
             modifier = Modifier.fillMaxSize().padding(scaffoldPadding).statusBarsPadding(),
-            contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
+            contentPadding =
+                androidx.compose.foundation.layout
+                    .PaddingValues(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp),
             verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             item {
@@ -386,7 +406,10 @@ private fun EditorScreen(state: EditorUiState, viewModel: EditorViewModel) {
 }
 
 @Composable
-private fun TriggerCard(draft: ShortcutDefinition, onClick: () -> Unit) {
+private fun TriggerCard(
+    draft: ShortcutDefinition,
+    onClick: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
@@ -415,15 +438,17 @@ private fun ActionCard(
     onDelete: () -> Unit,
 ) {
     Card(
-        modifier = Modifier
-            .fillMaxWidth()
-            .alpha(if (node.enabled) 1f else 0.62f)
-            .animateContentSize()
-            .clickable(onClick = onEdit),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .alpha(if (node.enabled) 1f else 0.62f)
+                .animateContentSize()
+                .clickable(onClick = onEdit),
         shape = RoundedCornerShape(20.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (node.enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = if (node.enabled) MaterialTheme.colorScheme.surface else MaterialTheme.colorScheme.surfaceVariant,
+            ),
         elevation = CardDefaults.cardElevation(defaultElevation = 2.dp, pressedElevation = 0.dp),
     ) {
         Column(Modifier.fillMaxWidth().padding(16.dp)) {
@@ -450,10 +475,15 @@ private fun ActionCard(
 }
 
 @Composable
-private fun ActionLibrary(trigger: Trigger, onSelected: (ActionDescriptor) -> Unit) {
+private fun ActionLibrary(
+    trigger: Trigger,
+    onSelected: (ActionDescriptor) -> Unit,
+) {
     val ordered = ActionCatalog.orderedFor(trigger)
     LazyColumn(
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(start = 20.dp, end = 20.dp, bottom = 32.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
@@ -490,7 +520,9 @@ private fun Page(
 ) {
     LazyColumn(
         modifier = Modifier.fillMaxSize().statusBarsPadding(),
-        contentPadding = androidx.compose.foundation.layout.PaddingValues(20.dp),
+        contentPadding =
+            androidx.compose.foundation.layout
+                .PaddingValues(20.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         item {
@@ -504,14 +536,21 @@ private fun Page(
 }
 
 @Composable
-private fun MethodCard(badge: String, title: String, description: String, prominent: Boolean, onClick: () -> Unit) {
+private fun MethodCard(
+    badge: String,
+    title: String,
+    description: String,
+    prominent: Boolean,
+    onClick: () -> Unit,
+) {
     Card(
         modifier = Modifier.fillMaxWidth().animateContentSize().clickable(onClick = onClick),
         shape = RoundedCornerShape(20.dp),
         elevation = CardDefaults.cardElevation(defaultElevation = if (prominent) 3.dp else 1.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = if (prominent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-        ),
+        colors =
+            CardDefaults.cardColors(
+                containerColor = if (prominent) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
+            ),
     ) {
         Column(Modifier.padding(18.dp)) {
             if (badge.isNotEmpty()) Text(badge, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
@@ -522,7 +561,10 @@ private fun MethodCard(badge: String, title: String, description: String, promin
 }
 
 @Composable
-private fun TriggerChoice(title: String, onClick: () -> Unit) {
+private fun TriggerChoice(
+    title: String,
+    onClick: () -> Unit,
+) {
     Surface(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onClick),
         shape = RoundedCornerShape(14.dp),
@@ -553,61 +595,85 @@ private fun PrivacyNotice() {
     }
 }
 
-private fun launchSavedShortcut(context: Context, shortcut: SavedShortcut) {
-    val message = when (shortcut) {
-        is SavedRouteShortcut -> {
-            val action = ShortcutAction.OpenRoute(
-                navigationPackage = InputValue.Fixed(shortcut.navigationPackage),
-                destination = InputValue.Fixed(shortcut.destination),
-                transportMode = shortcut.transportMode,
-            )
-            routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+private fun launchSavedShortcut(
+    context: Context,
+    shortcut: ShortcutDefinition,
+) {
+    val action = shortcut.nodes.firstOrNull { it.enabled }?.action
+    val message =
+        when (action) {
+            is ShortcutAction.OpenRoute -> {
+                routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+            }
+
+            is ShortcutAction.OpenApplication -> {
+                val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
+                if (packageName == null) {
+                    "Cette action demande une valeur au lancement."
+                } else {
+                    applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
+                }
+            }
+
+            else -> {
+                "Ce raccourci contient une première action qui n’est pas encore exécutable."
+            }
         }
-        is SavedApplicationShortcut -> applicationLaunchMessage(
-            ApplicationLauncher(context.applicationContext).launch(shortcut.packageName),
-        )
-    }
     if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
-private fun testShortcut(context: Context, shortcut: ShortcutDefinition) {
-    val action = shortcut.nodes
-        .asSequence()
-        .filter(ActionNode::enabled)
-        .map(ActionNode::action)
-        .firstOrNull { it is ShortcutAction.OpenRoute || it is ShortcutAction.OpenApplication }
-    val message = when (action) {
-        is ShortcutAction.OpenRoute -> routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
-        is ShortcutAction.OpenApplication -> {
-            val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
-            applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
+private fun testShortcut(
+    context: Context,
+    shortcut: ShortcutDefinition,
+) {
+    val action =
+        shortcut.nodes
+            .asSequence()
+            .filter(ActionNode::enabled)
+            .map(ActionNode::action)
+            .firstOrNull { it is ShortcutAction.OpenRoute || it is ShortcutAction.OpenApplication }
+    val message =
+        when (action) {
+            is ShortcutAction.OpenRoute -> {
+                routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
+            }
+
+            is ShortcutAction.OpenApplication -> {
+                val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
+                applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName))
+            }
+
+            else -> {
+                "Aucune action testable pour le moment."
+            }
         }
-        else -> "Aucune action testable pour le moment."
-    }
     if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
 }
 
-private fun routeLaunchMessage(result: RouteLaunchResult): String? = when (result) {
-    RouteLaunchResult.Launched -> null
-    RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
-    RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
-    RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
-    RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
-    RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
-}
+private fun routeLaunchMessage(result: RouteLaunchResult): String? =
+    when (result) {
+        RouteLaunchResult.Launched -> null
+        RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
+        RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
+        RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
+        RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
+        RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
+    }
 
-private fun applicationLaunchMessage(result: ApplicationLaunchResult): String? = when (result) {
-    ApplicationLaunchResult.Launched -> null
-    ApplicationLaunchResult.RuntimeValueRequired -> "Choisissez une application avant de tester."
-    ApplicationLaunchResult.InvalidPackage -> "L’application sélectionnée n’est pas valide."
-    ApplicationLaunchResult.MissingApplication -> "L’application sélectionnée n’est plus installée."
-    ApplicationLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’application."
-}
+private fun applicationLaunchMessage(result: ApplicationLaunchResult): String? =
+    when (result) {
+        ApplicationLaunchResult.Launched -> null
+        ApplicationLaunchResult.RuntimeValueRequired -> "Choisissez une application avant de tester."
+        ApplicationLaunchResult.InvalidPackage -> "L’application sélectionnée n’est pas valide."
+        ApplicationLaunchResult.MissingApplication -> "L’application sélectionnée n’est plus installée."
+        ApplicationLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’application."
+    }
 
-private fun ActionCategory.label(): String = when (this) {
-    ActionCategory.OPEN -> "Ouvrir"
-    ActionCategory.DEVICE -> "Régler le téléphone"
-    ActionCategory.COMMUNICATE -> "Communiquer"
-    ActionCategory.ORGANIZE -> "Organiser"
-    ActionCategory.CONTROL -> "Contrôler le raccourci"
-}
+private fun ActionCategory.label(): String =
+    when (this) {
+        ActionCategory.OPEN -> "Ouvrir"
+        ActionCategory.DEVICE -> "Régler le téléphone"
+        ActionCategory.COMMUNICATE -> "Communiquer"
+        ActionCategory.ORGANIZE -> "Organiser"
+        ActionCategory.CONTROL -> "Contrôler le raccourci"
+    }
