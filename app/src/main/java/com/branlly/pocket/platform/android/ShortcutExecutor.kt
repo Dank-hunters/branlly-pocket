@@ -50,7 +50,30 @@ class ShortcutExecutor(
                 val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
                 val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
-                ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
+                val launchResult = ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
+                if (launchResult !is ShortcutExecutionResult.Completed || mediaUri == null) {
+                    launchResult
+                } else {
+                    delay(MEDIA_SESSION_SETTLE_DELAY_MILLIS)
+                    when (MediaPlaybackController(context).play()) {
+                        PlaybackStartResult.Started -> {
+                            ShortcutExecutionResult.Completed
+                        }
+
+                        PlaybackStartResult.PermissionOrSessionMissing -> {
+                            context.startActivity(
+                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                            )
+                            ShortcutExecutionResult.Failed(
+                                "Autorisez une fois le contrôle de lecture de Branlly Pocket, puis relancez le raccourci.",
+                            )
+                        }
+
+                        PlaybackStartResult.Failed -> {
+                            ShortcutExecutionResult.Failed("La lecture multimédia n’a pas pu démarrer.")
+                        }
+                    }
+                }
             }
 
             is ShortcutAction.OpenRoute -> {
@@ -158,6 +181,10 @@ class ShortcutExecutor(
                 }
         }
         return ShortcutExecutionResult.Completed
+    }
+
+    private companion object {
+        const val MEDIA_SESSION_SETTLE_DELAY_MILLIS = 2_000L
     }
 }
 
