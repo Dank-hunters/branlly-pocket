@@ -9,17 +9,17 @@ import androidx.compose.ui.graphics.Color
 
 private val LightColors =
     lightColorScheme(
-        primary = Color(0xFF3658D4),
+        primary = Color(0xFF315FDE),
         onPrimary = Color.White,
-        primaryContainer = Color(0xFFE1E7FF),
-        onPrimaryContainer = Color(0xFF102A78),
+        primaryContainer = Color(0xFFDCE6FF),
+        onPrimaryContainer = Color(0xFF10245E),
         secondary = Color(0xFF4E5F80),
         secondaryContainer = Color(0xFFE2E8F8),
         onSecondaryContainer = Color(0xFF172A49),
         tertiary = Color(0xFF006B66),
-        background = Color(0xFFF8F9FF),
+        background = Color(0xFFF5F7FC),
         surface = Color(0xFFFFFFFF),
-        surfaceVariant = Color(0xFFE7E9F1),
+        surfaceVariant = Color(0xFFE9ECF4),
         onSurface = Color(0xFF1A1B21),
         onSurfaceVariant = Color(0xFF454750),
         outline = Color(0xFF757780),
@@ -28,20 +28,20 @@ private val LightColors =
 
 private val DarkColors =
     darkColorScheme(
-        primary = Color(0xFFB9C5FF),
-        onPrimary = Color(0xFF052060),
-        primaryContainer = Color(0xFF24449A),
-        onPrimaryContainer = Color(0xFFDEE4FF),
+        primary = Color(0xFF8EAEFF),
+        onPrimary = Color(0xFF061842),
+        primaryContainer = Color(0xFF162C61),
+        onPrimaryContainer = Color(0xFFDCE6FF),
         secondary = Color(0xFFBBC7E6),
         secondaryContainer = Color(0xFF35415D),
         onSecondaryContainer = Color(0xFFDCE5FF),
         tertiary = Color(0xFF61DBD1),
-        background = Color(0xFF101116),
-        surface = Color(0xFF18191F),
-        surfaceVariant = Color(0xFF25262E),
-        onSurface = Color(0xFFE2E2E9),
-        onSurfaceVariant = Color(0xFFC5C6D0),
-        outline = Color(0xFF8F909A),
+        background = Color(0xFF090C13),
+        surface = Color(0xFF111722),
+        surfaceVariant = Color(0xFF1A2230),
+        onSurface = Color(0xFFE9EDF7),
+        onSurfaceVariant = Color(0xFFB7C0D1),
+        outline = Color(0xFF536177),
         error = Color(0xFFFFB4AB),
     )
 

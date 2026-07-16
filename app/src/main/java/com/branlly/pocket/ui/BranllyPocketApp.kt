@@ -73,6 +73,7 @@ import com.branlly.pocket.ui.editor.EditorViewModel
 import com.branlly.pocket.ui.editor.PresentationPickerSheet
 import com.branlly.pocket.ui.editor.Screen
 import com.branlly.pocket.ui.editor.TriggerConfigurationSheet
+import com.branlly.pocket.ui.editor.toComposeColor
 import com.branlly.pocket.ui.voice.VoiceCommandControl
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -111,18 +112,34 @@ private fun HomeScreen(
         verticalArrangement = Arrangement.spacedBy(14.dp),
     ) {
         item {
-            Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = MaterialTheme.colorScheme.primaryContainer,
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("BRANLLY POCKET", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
-                    Text("Vos actions, tout de suite.", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
+                Surface(
+                    modifier = Modifier.size(42.dp),
+                    shape = CircleShape,
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                ) {
+                    Box(contentAlignment = Alignment.Center) {
+                        Text(
+                            "B",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
+                Column(modifier = Modifier.padding(start = 12.dp).weight(1f)) {
+                    Text("Branlly Pocket", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                     Text(
-                        "Lancez et organisez sans détour.",
-                        color = MaterialTheme.colorScheme.onPrimaryContainer,
-                        style = MaterialTheme.typography.bodyMedium,
+                        "Vos raccourcis, sans détour.",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
+                }
+                Surface(modifier = Modifier.size(40.dp), shape = CircleShape, color = MaterialTheme.colorScheme.surfaceVariant) {
+                    Box(contentAlignment = Alignment.Center) { Text("⋯", style = MaterialTheme.typography.titleLarge) }
                 }
             }
         }
@@ -138,34 +155,49 @@ private fun HomeScreen(
             }
         }
         item {
-            Button(
-                onClick = viewModel::showGuidedTriggers,
-                modifier = Modifier.fillMaxWidth().height(52.dp),
-                shape = RoundedCornerShape(18.dp),
-            ) { Text("Nouveau raccourci") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                OutlinedButton(onClick = viewModel::showGuidedTriggers, shape = RoundedCornerShape(18.dp)) {
+                    Text("＋  Nouveau raccourci")
+                }
+            }
         }
         item {
-            VoiceCommandControl { command ->
-                val saved =
-                    when (command) {
-                        LocalVoiceCommand.NAVIGATION -> {
-                            state.savedShortcuts.firstOrNull { shortcut ->
-                                shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenRoute }
-                            }
-                        }
-
-                        LocalVoiceCommand.MUSIC -> {
-                            state.savedShortcuts.firstOrNull { shortcut ->
-                                shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenApplication }
-                            }
-                        }
+            Surface(shape = RoundedCornerShape(18.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Surface(modifier = Modifier.size(36.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+                        Box(contentAlignment = Alignment.Center) { Text("◉", color = MaterialTheme.colorScheme.primary) }
                     }
-                if (saved != null) {
-                    launchSavedShortcut(context, saved)
-                } else {
-                    when (command) {
-                        LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
-                        LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+                    Column(modifier = Modifier.weight(1f).padding(start = 10.dp)) {
+                        Text("Commande vocale locale", style = MaterialTheme.typography.labelLarge, fontWeight = FontWeight.Medium)
+                        Text(
+                            "Dites « musique » ou « navigation »",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    VoiceCommandControl { command ->
+                        val saved =
+                            when (command) {
+                                LocalVoiceCommand.NAVIGATION -> {
+                                    state.savedShortcuts.firstOrNull { shortcut ->
+                                        shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenRoute }
+                                    }
+                                }
+
+                                LocalVoiceCommand.MUSIC -> {
+                                    state.savedShortcuts.firstOrNull { shortcut ->
+                                        shortcut.nodes.any { it.enabled && it.action is ShortcutAction.OpenApplication }
+                                    }
+                                }
+                            }
+                        if (saved != null) {
+                            launchSavedShortcut(context, saved)
+                        } else {
+                            when (command) {
+                                LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
+                                LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+                            }
+                        }
                     }
                 }
             }
@@ -221,8 +253,9 @@ private fun CompactShortcutTile(
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
         elevation = CardDefaults.cardElevation(defaultElevation = 0.dp),
     ) {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Surface(modifier = Modifier.size(48.dp), shape = CircleShape, color = MaterialTheme.colorScheme.primaryContainer) {
+        val accent = shortcut.accentColor.toComposeColor()
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Surface(modifier = Modifier.size(44.dp), shape = CircleShape, color = accent.copy(alpha = 0.16f)) {
                 Box(contentAlignment = Alignment.Center) {
                     Text(
                         shortcutGlyph(shortcut.iconKey),
@@ -243,12 +276,19 @@ private fun CompactShortcutTile(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            TextButton(
-                onClick = onEdit,
-                contentPadding =
-                    androidx.compose.foundation.layout
-                        .PaddingValues(0.dp),
-            ) { Text("Modifier") }
+            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    "${shortcut.nodes.count { it.enabled }} action(s)",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    "⋯",
+                    modifier = Modifier.clickable(onClick = onEdit).padding(horizontal = 6.dp),
+                    style = MaterialTheme.typography.titleMedium,
+                    color = accent,
+                )
+            }
         }
     }
 }
