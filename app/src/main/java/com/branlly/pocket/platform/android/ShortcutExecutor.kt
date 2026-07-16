@@ -34,7 +34,12 @@ class ShortcutExecutor(
                 "execution=$executionId index=$index type=${node.action.kind} state=STARTING timestamp=${System.currentTimeMillis()}",
             )
             if (node.delayBeforeMillis > 0) delay(node.delayBeforeMillis)
-            val result = executeWithStrategy(node)
+            val result =
+                executeWithStrategy(
+                    node,
+                    waitForPlayback =
+                        node.action is ShortcutAction.OpenApplication && nodes.getOrNull(index + 1)?.action is ShortcutAction.OpenRoute,
+                )
             Log.i(
                 TAG,
                 "execution=$executionId index=$index type=${node.action.kind} state=${if (result is ShortcutExecutionResult.Completed) "COMPLETED" else "FAILED"} result=$result timestamp=${System.currentTimeMillis()}",
@@ -59,25 +64,34 @@ class ShortcutExecutor(
         return ShortcutExecutionResult.Completed
     }
 
-    private suspend fun executeWithStrategy(node: ActionNode): ShortcutExecutionResult {
-        var result = execute(node.action)
+    private suspend fun executeWithStrategy(
+        node: ActionNode,
+        waitForPlayback: Boolean,
+    ): ShortcutExecutionResult {
+        var result = execute(node.action, waitForPlayback)
         val retry = node.errorStrategy as? ErrorStrategy.Retry ?: return result
         repeat(retry.attempts - 1) {
             if (result is ShortcutExecutionResult.Completed) return result
             if (retry.delayMillis > 0) delay(retry.delayMillis)
-            result = execute(node.action)
+            result = execute(node.action, waitForPlayback)
         }
         return result
     }
 
-    private suspend fun execute(action: ShortcutAction): ShortcutExecutionResult =
+    private suspend fun execute(
+        action: ShortcutAction,
+        waitForPlayback: Boolean = false,
+    ): ShortcutExecutionResult =
         when (action) {
             is ShortcutAction.OpenApplication -> {
                 val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
                 val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
                 val launchResult = ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
-                val waitForYoutubePlayback = packageName?.endsWith("youtube.music") == true
+                val waitForYoutubePlayback =
+                    waitForPlayback || packageName?.contains("music", ignoreCase = true) == true ||
+                        searchQuery?.contains("music", ignoreCase = true) == true
+                Log.i(TAG, "action=OPEN_APPLICATION target=$packageName query=$searchQuery waitForPlayback=$waitForYoutubePlayback")
                 if (launchResult !is ShortcutExecutionResult.Completed || packageName == null ||
                     (!waitForYoutubePlayback && mediaUri == null)
                 ) {
