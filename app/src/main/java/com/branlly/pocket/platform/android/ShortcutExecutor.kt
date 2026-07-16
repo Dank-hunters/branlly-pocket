@@ -1,6 +1,7 @@
 package com.branlly.pocket.platform.android
 
 import android.app.NotificationManager
+import android.bluetooth.BluetoothManager
 import android.content.Context
 import android.content.Intent
 import android.media.AudioManager
@@ -148,7 +149,7 @@ class ShortcutExecutor(
             }
         }
 
-    private fun openSettings(panel: SettingsPanel): ShortcutExecutionResult {
+    private suspend fun openSettings(panel: SettingsPanel): ShortcutExecutionResult {
         val action =
             when (panel) {
                 SettingsPanel.BLUETOOTH -> Settings.ACTION_BLUETOOTH_SETTINGS
@@ -159,8 +160,21 @@ class ShortcutExecutor(
             }
         return runCatching {
             context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
-            ShortcutExecutionResult.Completed
+            if (panel == SettingsPanel.BLUETOOTH) {
+                waitForBluetoothEnabled()
+            } else {
+                ShortcutExecutionResult.Completed
+            }
         }.getOrElse { ShortcutExecutionResult.Failed("Android ne peut pas ouvrir ce réglage.") }
+    }
+
+    private suspend fun waitForBluetoothEnabled(): ShortcutExecutionResult {
+        val manager = context.getSystemService(BluetoothManager::class.java)
+        repeat((BLUETOOTH_ENABLE_TIMEOUT_MILLIS / BLUETOOTH_STATE_POLL_MILLIS).toInt()) {
+            if (runCatching { manager.adapter?.isEnabled == true }.getOrDefault(false)) return ShortcutExecutionResult.Completed
+            delay(BLUETOOTH_STATE_POLL_MILLIS)
+        }
+        return ShortcutExecutionResult.Failed("Bluetooth n’a pas été activé dans le délai prévu.")
     }
 
     private fun setVolume(action: ShortcutAction.SetVolume): ShortcutExecutionResult {
@@ -228,6 +242,8 @@ class ShortcutExecutor(
     private companion object {
         const val MEDIA_PLAYBACK_TIMEOUT_MILLIS = 120_000L
         const val TAG = "BranllyExecution"
+        const val BLUETOOTH_ENABLE_TIMEOUT_MILLIS = 120_000L
+        const val BLUETOOTH_STATE_POLL_MILLIS = 500L
     }
 }
 
