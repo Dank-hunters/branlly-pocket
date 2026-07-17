@@ -86,6 +86,36 @@ fun ActionConfigurationSheet(
                     WaitForm(action, onActionChange)
                 }
 
+                is ShortcutAction.WaitForMediaPlayback -> {
+                    val packageName = (action.packageName as? InputValue.Fixed<String>)?.value.orEmpty()
+                    OutlinedTextField(
+                        value = packageName,
+                        onValueChange = { value -> onActionChange(action.copy(packageName = InputValue.Fixed(value.trim()))) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Package de l’application multimédia") },
+                        singleLine = true,
+                    )
+                    OutlinedTextField(
+                        value = (action.timeoutMillis / 1_000L).toString(),
+                        onValueChange = { value ->
+                            value.toLongOrNull()?.let { seconds ->
+                                onActionChange(
+                                    action.copy(
+                                        timeoutMillis =
+                                            (
+                                                seconds *
+                                                    1_000L
+                                            ).coerceIn(1_000L, 300_000L),
+                                    ),
+                                )
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Timeout (secondes)") },
+                        singleLine = true,
+                    )
+                }
+
                 is ShortcutAction.SetSoundMode -> {
                     SoundModeForm(action, onActionChange)
                 }

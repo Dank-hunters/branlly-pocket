@@ -25,6 +25,17 @@ sealed interface ShortcutAction {
         override val kind = ActionKind.OPEN_APPLICATION
     }
 
+    data class WaitForMediaPlayback(
+        val packageName: InputValue<String>,
+        val timeoutMillis: Long = 120_000L,
+    ) : ShortcutAction {
+        init {
+            require(timeoutMillis in 1_000L..300_000L)
+        }
+
+        override val kind = ActionKind.WAIT_FOR_MEDIA_PLAYBACK
+    }
+
     data class OpenWebsite(
         val url: InputValue<String>,
     ) : ShortcutAction {
@@ -132,6 +143,7 @@ sealed interface ShortcutAction {
 
 enum class ActionKind {
     OPEN_APPLICATION,
+    WAIT_FOR_MEDIA_PLAYBACK,
     OPEN_WEBSITE,
     OPEN_ROUTE,
     OPEN_SETTINGS,

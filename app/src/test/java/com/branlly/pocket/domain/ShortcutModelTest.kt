@@ -14,11 +14,12 @@ import org.junit.Test
 class ShortcutModelTest {
     @Test
     fun `blueprints and editor actions share the same model`() {
-        val shortcut = ShortcutDefinition(
-            name = "Test",
-            trigger = Trigger.ManualButton,
-            nodes = listOf(ActionNode(action = ShortcutAction.SetVolume(VolumeStream.MEDIA, InputValue.Fixed(70)))),
-        )
+        val shortcut =
+            ShortcutDefinition(
+                name = "Test",
+                trigger = Trigger.ManualButton,
+                nodes = listOf(ActionNode(action = ShortcutAction.SetVolume(VolumeStream.MEDIA, InputValue.Fixed(70)))),
+            )
 
         assertTrue(shortcut.nodes.single().action is ShortcutAction.SetVolume)
         assertEquals(ShortcutDefinition.CURRENT_SCHEMA_VERSION, shortcut.schemaVersion)
@@ -26,7 +27,19 @@ class ShortcutModelTest {
 
     @Test
     fun `catalog contains unique action kinds`() {
-        assertEquals(ActionCatalog.all.size, ActionCatalog.all.map { it.kind }.distinct().size)
+        assertEquals(
+            ActionCatalog.all.size,
+            ActionCatalog.all
+                .map { it.kind }
+                .distinct()
+                .size,
+        )
+    }
+
+    @Test
+    fun `media playback wait is an explicit action`() {
+        val action = ShortcutAction.WaitForMediaPlayback(InputValue.Fixed("com.google.android.apps.youtube.music"))
+        assertEquals(com.branlly.pocket.domain.model.ActionKind.WAIT_FOR_MEDIA_PLAYBACK, action.kind)
     }
 
     @Test(expected = IllegalArgumentException::class)

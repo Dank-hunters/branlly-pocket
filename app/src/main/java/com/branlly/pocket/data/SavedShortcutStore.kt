@@ -336,6 +336,11 @@ class SavedShortcutStore(
                     action.mediaUri?.let { put("mediaUri", encodeInput(it)) }
                 }
 
+                is ShortcutAction.WaitForMediaPlayback -> {
+                    put("package", encodeInput(action.packageName))
+                    put("timeout", action.timeoutMillis)
+                }
+
                 is ShortcutAction.OpenWebsite -> {
                     put("url", encodeInput(action.url))
                 }
@@ -415,6 +420,13 @@ class SavedShortcutStore(
                         packageName = decodeStringInput(value.optJSONObject("package")) ?: return null,
                         searchQuery = value.optJSONObject("searchQuery")?.let(::decodeStringInput),
                         mediaUri = value.optJSONObject("mediaUri")?.let(::decodeStringInput),
+                    )
+                }
+
+                com.branlly.pocket.domain.model.ActionKind.WAIT_FOR_MEDIA_PLAYBACK -> {
+                    ShortcutAction.WaitForMediaPlayback(
+                        decodeStringInput(value.optJSONObject("package")) ?: return null,
+                        value.optLong("timeout", 120_000L).coerceIn(1_000L, 300_000L),
                     )
                 }
 

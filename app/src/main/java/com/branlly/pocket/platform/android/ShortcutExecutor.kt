@@ -22,6 +22,7 @@ import kotlinx.coroutines.delay
 /** Exécute dans l'ordre les actions Android actuellement réellement prises en charge. */
 class ShortcutExecutor(
     private val context: Context,
+    private val mediaPlaybackWaiter: MediaPlaybackWaiter = UnsupportedMediaPlaybackWaiter,
 ) {
     suspend fun execute(shortcut: ShortcutDefinition): ShortcutExecutionResult {
         val executionId =
@@ -29,18 +30,15 @@ class ShortcutExecutor(
                 .randomUUID()
                 .toString()
         val nodes = shortcut.nodes.filter(ActionNode::enabled)
+        Log.i(TAG, "ROUTINE_START id=${shortcut.id.value} ACTION_ORDER count=${nodes.size}")
         nodes.forEachIndexed { index, node ->
+            Log.i(TAG, "ACTION[$index] kind=${node.action.kind}")
             Log.i(
                 TAG,
                 "execution=$executionId index=$index type=${node.action.kind} state=STARTING timestamp=${System.currentTimeMillis()}",
             )
             if (node.delayBeforeMillis > 0) delay(node.delayBeforeMillis)
-            val result =
-                executeWithStrategy(
-                    node,
-                    waitForPlayback =
-                        node.action is ShortcutAction.OpenApplication && nodes.getOrNull(index + 1)?.action is ShortcutAction.OpenRoute,
-                )
+            val result = executeWithStrategy(node)
             Log.i(
                 TAG,
                 "execution=$executionId index=$index type=${node.action.kind} state=${if (result is ShortcutExecutionResult.Completed) "COMPLETED" else "FAILED"} result=$result timestamp=${System.currentTimeMillis()}",
@@ -65,57 +63,36 @@ class ShortcutExecutor(
         return ShortcutExecutionResult.Completed
     }
 
-    private suspend fun executeWithStrategy(
-        node: ActionNode,
-        waitForPlayback: Boolean,
-    ): ShortcutExecutionResult {
-        var result = execute(node.action, waitForPlayback)
+    private suspend fun executeWithStrategy(node: ActionNode): ShortcutExecutionResult {
+        var result = execute(node.action)
         val retry = node.errorStrategy as? ErrorStrategy.Retry ?: return result
         repeat(retry.attempts - 1) {
             if (result is ShortcutExecutionResult.Completed) return result
             if (retry.delayMillis > 0) delay(retry.delayMillis)
-            result = execute(node.action, waitForPlayback)
+            result = execute(node.action)
         }
         return result
     }
 
-    private suspend fun execute(
-        action: ShortcutAction,
-        waitForPlayback: Boolean = false,
-    ): ShortcutExecutionResult =
+    private suspend fun execute(action: ShortcutAction): ShortcutExecutionResult =
         when (action) {
             is ShortcutAction.OpenApplication -> {
                 val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
                 val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
                 val mediaUri = (action.mediaUri as? InputValue.Fixed<String>)?.value
                 val launchResult = ApplicationLauncher(context).launch(packageName, searchQuery, mediaUri).toExecutionResult()
-                val waitForYoutubePlayback =
-                    waitForPlayback || packageName?.contains("music", ignoreCase = true) == true ||
-                        searchQuery?.contains("music", ignoreCase = true) == true
-                Log.i(TAG, "action=OPEN_APPLICATION target=$packageName query=$searchQuery waitForPlayback=$waitForYoutubePlayback")
-                if (launchResult !is ShortcutExecutionResult.Completed || packageName == null ||
-                    (!waitForYoutubePlayback && mediaUri == null)
-                ) {
-                    launchResult
-                } else {
-                    when (MediaPlaybackMonitor(context).requestPlayAndAwait(packageName, MEDIA_PLAYBACK_TIMEOUT_MILLIS)) {
-                        MediaPlaybackAwaitResult.Playing -> {
-                            ShortcutExecutionResult.Completed
-                        }
+                Log.i(TAG, "action=OPEN_APPLICATION target=$packageName query=$searchQuery")
+                launchResult
+            }
 
-                        MediaPlaybackAwaitResult.NotificationAccessMissing -> {
-                            context.startActivity(
-                                Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
-                            )
-                            ShortcutExecutionResult.Failed("Autorisez le contrôle de lecture de Branlly Pocket, puis relancez la routine.")
-                        }
-
-                        MediaPlaybackAwaitResult.TimedOut -> {
-                            ShortcutExecutionResult.Failed(
-                                "La musique n’a pas démarré dans les 2 minutes. Lancez le morceau puis réessayez.",
-                            )
-                        }
-                    }
+            is ShortcutAction.WaitForMediaPlayback -> {
+                val packageName =
+                    (action.packageName as? InputValue.Fixed<String>)?.value
+                        ?: return ShortcutExecutionResult.Failed("Choisissez l’application multimédia à surveiller.")
+                when (val result = mediaPlaybackWaiter.waitForPlayback(packageName, action.timeoutMillis)) {
+                    MediaWaitResult.Playing -> ShortcutExecutionResult.Completed
+                    MediaWaitResult.TimedOut -> ShortcutExecutionResult.Failed("La lecture multimédia a expiré.")
+                    is MediaWaitResult.Failed -> ShortcutExecutionResult.Failed(result.reason)
                 }
             }
 
