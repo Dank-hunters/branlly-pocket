@@ -1,6 +1,7 @@
 package com.branlly.pocket.data
 
 import android.content.Context
+import android.util.Log
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
@@ -67,6 +68,13 @@ class SavedShortcutStore(
             .put("shortcut", encodeDefinition(shortcut))
             .toString()
 
+    /** Stable snapshot used by generic execution continuations. */
+    fun encodeSnapshot(shortcut: ShortcutDefinition): String = encodeDefinition(shortcut).toString()
+
+    /** Restores a continuation snapshot without assigning a new routine id. */
+    fun decodeSnapshot(raw: String): ShortcutDefinition? =
+        runCatching { decodeDefinition(JSONObject(raw)) }.getOrNull()
+
     /** Invalid or unsupported documents are rejected without altering persisted routines. */
     fun import(raw: String): ShortcutDefinition? =
         runCatching {
@@ -96,10 +104,18 @@ class SavedShortcutStore(
             val array = JSONArray(raw)
             buildList {
                 repeat(minOf(array.length(), MAX_SHORTCUTS)) { index ->
-                    decodeDefinition(array.optJSONObject(index))?.let(::add)
+                    val definition = decodeDefinition(array.optJSONObject(index))
+                    if (definition == null) {
+                        Log.e(TAG, "ROUTINE_DECODE_FAILED index=$index; stored data was preserved and not partially loaded")
+                    } else {
+                        add(definition)
+                    }
                 }
             }
-        }.getOrDefault(emptyList())
+        }.getOrElse { error ->
+            Log.e(TAG, "ROUTINE_STORE_DECODE_FAILED; stored data was preserved", error)
+            emptyList()
+        }
     }
 
     private fun encodeDefinition(definition: ShortcutDefinition): JSONObject =
@@ -113,7 +129,6 @@ class SavedShortcutStore(
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
             .put("nodes", JSONArray().apply { definition.nodes.forEach { put(encodeNode(it)) } })
-            .put("finalForegroundNodeId", definition.finalForegroundNodeId?.value)
             .put("mode", definition.mode.name)
             .put("enabled", definition.enabled)
             .put("schemaVersion", definition.schemaVersion)
@@ -135,12 +150,11 @@ class SavedShortcutStore(
                 category = enumValue(item.optString("category"), ShortcutCategory.OTHER),
                 trigger = decodeTrigger(item.optJSONObject("trigger")) ?: return null,
                 nodes =
-                    buildList {
-                        repeat(minOf(nodes.length(), ShortcutDefinition.MAX_ACTION_COUNT)) { index ->
-                            decodeNode(nodes.optJSONObject(index))?.let(::add)
-                        }
+                    List(minOf(nodes.length(), ShortcutDefinition.MAX_ACTION_COUNT)) { index ->
+                        decodeNode(nodes.optJSONObject(index))
+                            ?: error("Invalid node at index $index")
                     },
-                finalForegroundNodeId = item.optStringOrNull("finalForegroundNodeId")?.let(::NodeId),
+                // Legacy finalForegroundNodeId is intentionally ignored: order is now nodes-only.
                 mode = enumValue(item.optString("mode"), EditorMode.SIMPLE),
                 enabled = item.optBoolean("enabled", false),
                 schemaVersion = item.optInt("schemaVersion", ShortcutDefinition.CURRENT_SCHEMA_VERSION),
@@ -327,230 +341,10 @@ class SavedShortcutStore(
             }
         }.getOrNull()
 
-    private fun encodeAction(action: ShortcutAction): JSONObject =
-        JSONObject().put("type", action.kind.name).apply {
-            when (action) {
-                is ShortcutAction.OpenApplication -> {
-                    put("package", encodeInput(action.packageName))
-                    action.searchQuery?.let { put("searchQuery", encodeInput(it)) }
-                    action.mediaUri?.let { put("mediaUri", encodeInput(it)) }
-                }
-
-                is ShortcutAction.WaitForMediaPlayback -> {
-                    put("package", encodeInput(action.packageName))
-                    put("timeout", action.timeoutMillis)
-                }
-
-                is ShortcutAction.OpenWebsite -> {
-                    put("url", encodeInput(action.url))
-                }
-
-                is ShortcutAction.OpenRoute -> {
-                    put("package", encodeInput(action.navigationPackage))
-                    put("destination", encodeInput(action.destination))
-                    put("transport", action.transportMode.name)
-                }
-
-                is ShortcutAction.OpenSettings -> {
-                    put("panel", action.panel.name)
-                }
-
-                is ShortcutAction.SetVolume -> {
-                    put("stream", action.stream.name)
-                    put("percent", encodeInput(action.percent))
-                    put("restore", action.restoreAfterExecution)
-                }
-
-                is ShortcutAction.SetBrightness -> {
-                    put("percent", encodeInput(action.percent))
-                }
-
-                is ShortcutAction.SetSoundMode -> {
-                    put("mode", action.mode.name)
-                }
-
-                is ShortcutAction.PrepareSms -> {
-                    put("contact", encodeInput(action.contact))
-                    put("message", encodeInput(action.message))
-                    put("confirmation", action.confirmationRequired)
-                }
-
-                is ShortcutAction.CallContact -> {
-                    put("contact", encodeInput(action.contact))
-                }
-
-                is ShortcutAction.CopyText -> {
-                    put("text", encodeInput(action.text))
-                }
-
-                is ShortcutAction.Wait -> {
-                    put("duration", action.durationMillis)
-                    put("cancellable", action.cancellable)
-                }
-
-                is ShortcutAction.Checklist -> {
-                    put("items", JSONArray(action.items))
-                }
-
-                is ShortcutAction.Notification -> {
-                    put("title", action.title)
-                    put("message", action.message)
-                }
-
-                is ShortcutAction.Confirmation -> {
-                    put("message", action.message)
-                }
-
-                is ShortcutAction.RunShortcut -> {
-                    put("shortcutId", action.shortcutId.value)
-                }
-
-                ShortcutAction.StopExecution -> {
-                    Unit
-                }
-            }
-        }
+    private fun encodeAction(action: ShortcutAction): JSONObject = ActionJsonCodecRegistry.DEFAULT.encode(action)
 
     private fun decodeAction(item: JSONObject?): ShortcutAction? =
-        runCatching {
-            val value = item ?: return null
-            when (enumOrNull<com.branlly.pocket.domain.model.ActionKind>(value.optString("type"))) {
-                com.branlly.pocket.domain.model.ActionKind.OPEN_APPLICATION -> {
-                    ShortcutAction.OpenApplication(
-                        packageName = decodeStringInput(value.optJSONObject("package")) ?: return null,
-                        searchQuery = value.optJSONObject("searchQuery")?.let(::decodeStringInput),
-                        mediaUri = value.optJSONObject("mediaUri")?.let(::decodeStringInput),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.WAIT_FOR_MEDIA_PLAYBACK -> {
-                    ShortcutAction.WaitForMediaPlayback(
-                        decodeStringInput(value.optJSONObject("package")) ?: return null,
-                        value.optLong("timeout", 120_000L).coerceIn(1_000L, 300_000L),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.OPEN_WEBSITE -> {
-                    ShortcutAction.OpenWebsite(decodeStringInput(value.optJSONObject("url")) ?: return null)
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.OPEN_ROUTE -> {
-                    ShortcutAction.OpenRoute(
-                        decodeStringInput(value.optJSONObject("package")) ?: return null,
-                        decodeStringInput(value.optJSONObject("destination")) ?: return null,
-                        enumValue(value.optString("transport"), TransportMode.DRIVING),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.OPEN_SETTINGS -> {
-                    ShortcutAction.OpenSettings(enumValue(value.optString("panel"), SettingsPanel.WIFI))
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.SET_VOLUME -> {
-                    ShortcutAction.SetVolume(
-                        enumValue(value.optString("stream"), VolumeStream.MEDIA),
-                        decodeIntInput(value.optJSONObject("percent")) ?: return null,
-                        value.optBoolean("restore", false),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.SET_BRIGHTNESS -> {
-                    ShortcutAction.SetBrightness(decodeIntInput(value.optJSONObject("percent")) ?: return null)
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.SET_SOUND_MODE -> {
-                    ShortcutAction.SetSoundMode(enumValue(value.optString("mode"), SoundMode.NORMAL))
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.PREPARE_SMS -> {
-                    ShortcutAction.PrepareSms(
-                        decodeStringInput(value.optJSONObject("contact")) ?: return null,
-                        decodeStringInput(value.optJSONObject("message")) ?: return null,
-                        value.optBoolean("confirmation", true),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.CALL_CONTACT -> {
-                    ShortcutAction.CallContact(decodeStringInput(value.optJSONObject("contact")) ?: return null)
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.COPY_TEXT -> {
-                    ShortcutAction.CopyText(decodeStringInput(value.optJSONObject("text")) ?: return null)
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.WAIT -> {
-                    ShortcutAction.Wait(value.optLong("duration"), value.optBoolean("cancellable", true))
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.CHECKLIST -> {
-                    ShortcutAction.Checklist(
-                        value.optJSONArray("items")?.let { array ->
-                            List(minOf(array.length(), 50)) { index -> array.optString(index).take(MAX_TEXT_LENGTH) }
-                        }
-                            ?: return null,
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.NOTIFICATION -> {
-                    ShortcutAction.Notification(
-                        value.requiredString("title", MAX_TEXT_LENGTH),
-                        value.requiredString("message", MAX_TEXT_LENGTH),
-                    )
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.CONFIRMATION -> {
-                    ShortcutAction.Confirmation(value.requiredString("message", MAX_TEXT_LENGTH))
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.RUN_SHORTCUT -> {
-                    ShortcutAction.RunShortcut(ShortcutId(value.requiredString("shortcutId", MAX_ID_LENGTH)))
-                }
-
-                com.branlly.pocket.domain.model.ActionKind.STOP_EXECUTION -> {
-                    ShortcutAction.StopExecution
-                }
-
-                null -> {
-                    null
-                }
-            }
-        }.getOrNull()
-
-    private fun encodeInput(input: InputValue<*>): JSONObject =
-        JSONObject().apply {
-            when (input) {
-                is InputValue.Fixed<*> -> {
-                    put("type", "fixed")
-                    put("value", input.value)
-                }
-
-                InputValue.AskAtRuntime -> {
-                    put("type", "ask")
-                }
-
-                is InputValue.FromTrigger -> {
-                    put("type", "trigger")
-                    put("key", input.key.name)
-                }
-            }
-        }
-
-    private fun decodeStringInput(item: JSONObject?): InputValue<String>? = decodeInput(item) { it as? String }
-
-    private fun decodeIntInput(item: JSONObject?): InputValue<Int>? = decodeInput(item) { (it as? Number)?.toInt() }
-
-    private fun <T> decodeInput(
-        item: JSONObject?,
-        fixed: (Any?) -> T?,
-    ): InputValue<T>? {
-        val value = item ?: return null
-        return when (value.optString("type")) {
-            "fixed" -> fixed(value.opt("value"))?.let { InputValue.Fixed(it) }
-            "ask" -> InputValue.AskAtRuntime
-            "trigger" -> InputValue.FromTrigger(enumValue(value.optString("key"), TriggerValueKey.DEVICE_NAME))
-            else -> null
-        }
-    }
+        item?.let(ActionJsonCodecRegistry.DEFAULT::decode)
 
     private fun encodeErrorStrategy(strategy: ErrorStrategy): JSONObject =
         JSONObject().apply {
@@ -686,7 +480,7 @@ class SavedShortcutStore(
     companion object {
         private val SHORTCUTS = stringPreferencesKey("shortcut_definitions_v2")
         private val LEGACY_SHORTCUTS = stringPreferencesKey("route_shortcuts_v1")
-        private const val CURRENT_STORAGE_VERSION = 8
+        private const val CURRENT_STORAGE_VERSION = 9
         private const val LEGACY_STORAGE_VERSION = 1
         private const val TYPE_ROUTE = "route"
         private const val TYPE_APPLICATION = "application"
@@ -698,5 +492,6 @@ class SavedShortcutStore(
         private const val MAX_TEXT_LENGTH = 500
         private const val MAX_CONDITIONS = 20
         private const val MAX_CONDITION_DEPTH = 4
+        private const val TAG = "SavedShortcutStore"
     }
 }

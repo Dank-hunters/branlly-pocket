@@ -13,7 +13,6 @@ import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.ShortcutAccentColor
 import com.branlly.pocket.domain.model.ShortcutAction
-import com.branlly.pocket.domain.model.widgetExecutableAction
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.first
@@ -32,7 +31,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
                         SavedShortcutStore(context.applicationContext)
                             .shortcuts
                             .first()
-                            .filter { it.widgetExecutableAction() != null }
+                            .filter { it.nodes.isNotEmpty() }
                     appWidgetIds.forEach { widgetId -> initializeWidget(context.applicationContext, manager, widgetId, available) }
                 } finally {
                     pendingResult.finish()
@@ -51,12 +50,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
         when (intent.action) {
             ACTION_RUN -> {
                 intent.getStringExtra(EXTRA_SHORTCUT_ID)?.let { shortcutId ->
-                    goAsync().also { pendingResult ->
-                        CoroutineScope(Dispatchers.IO).launch {
-                            runShortcut(context.applicationContext, shortcutId)
-                            pendingResult.finish()
-                        }
-                    }
+                    RoutineExecutionService.start(context.applicationContext, shortcutId)
                 }
             }
         }
@@ -129,7 +123,7 @@ class BranllyPocketWidget : AppWidgetProvider() {
             )
 
         suspend fun refreshAll(context: Context) {
-            val available = SavedShortcutStore(context).shortcuts.first().filter { it.widgetExecutableAction() != null }
+            val available = SavedShortcutStore(context).shortcuts.first().filter { it.nodes.isNotEmpty() }
             val byId = available.associateBy { it.id.value }
             val manager = AppWidgetManager.getInstance(context)
             val preferences = WidgetPreferences(context)
@@ -153,13 +147,6 @@ class BranllyPocketWidget : AppWidgetProvider() {
             }
         }
 
-        private suspend fun runShortcut(
-            context: Context,
-            shortcutId: String,
-        ) {
-            val shortcut = SavedShortcutStore(context).shortcuts.first().firstOrNull { it.id.value == shortcutId } ?: return
-            ShortcutExecutor(context).execute(shortcut)
-        }
 
         private const val DEFAULT_SHORTCUT_COUNT = 3
         private const val MAX_SHORTCUT_COUNT = 6

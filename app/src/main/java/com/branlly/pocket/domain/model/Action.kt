@@ -21,6 +21,8 @@ sealed interface ShortcutAction {
         val packageName: InputValue<String>,
         val searchQuery: InputValue<String>? = null,
         val mediaUri: InputValue<String>? = null,
+        val applicationLabel: String? = null,
+        val activityName: String? = null,
     ) : ShortcutAction {
         override val kind = ActionKind.OPEN_APPLICATION
     }
@@ -28,6 +30,10 @@ sealed interface ShortcutAction {
     data class WaitForMediaPlayback(
         val packageName: InputValue<String>,
         val timeoutMillis: Long = 120_000L,
+        val applicationLabel: String? = null,
+        val expectedTitle: String? = null,
+        val expectedArtist: String? = null,
+        val acceptAnyPlayingMedia: Boolean = true,
     ) : ShortcutAction {
         init {
             require(timeoutMillis in 1_000L..300_000L)

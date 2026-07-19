@@ -4,9 +4,8 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.branlly.pocket.data.SavedShortcutStore
-import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
-import com.branlly.pocket.domain.catalog.LocalRecommendations
+import com.branlly.pocket.domain.execution.RoutineValidator
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ConnectionEvent
 import com.branlly.pocket.domain.model.InputValue
@@ -19,6 +18,9 @@ import com.branlly.pocket.domain.model.ShortcutId
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.VolumeStream
 import com.branlly.pocket.platform.android.BranllyPocketWidget
+import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
+import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
+import com.branlly.pocket.platform.android.actions.BuiltInProviderCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -30,6 +32,8 @@ class EditorViewModel(
     application: Application,
 ) : AndroidViewModel(application) {
     private val store = SavedShortcutStore(application)
+    private val actionRegistry = AndroidActionRegistry.create(application)
+    private val validator = RoutineValidator(actionRegistry, AndroidActionValidationContext(application))
     private val _state = MutableStateFlow(EditorUiState())
     val state: StateFlow<EditorUiState> = _state.asStateFlow()
 
@@ -102,7 +106,7 @@ class EditorViewModel(
             ActionNode(
                 action =
                     ShortcutAction.OpenRoute(
-                        navigationPackage = InputValue.Fixed("com.google.android.apps.maps"),
+                        navigationPackage = InputValue.Fixed(BuiltInProviderCatalog.defaultNavigationPackage),
                         destination = InputValue.Fixed(""),
                     ),
             )
@@ -182,6 +186,11 @@ class EditorViewModel(
         if (imported == null) {
             _state.update { it.copy(message = "Fichier Branlly Pocket invalide ou non pris en charge.") }
         } else {
+            val issues = validator.validate(imported)
+            if (issues.isNotEmpty()) {
+                _state.update { it.copy(message = "Import refusé : ${issues.first().message}") }
+                return
+            }
             viewModelScope.launch {
                 store.save(imported)
                 _state.update { it.copy(message = "Raccourci importé : ${imported.name}") }
@@ -237,11 +246,6 @@ class EditorViewModel(
             )
         }
 
-    fun updateFinalForegroundNode(nodeId: NodeId?) =
-        _state.update { state ->
-            state.copy(draft = state.draft?.copy(finalForegroundNodeId = nodeId))
-        }
-
     fun showTriggerConfiguration() =
         _state.update {
             it.copy(triggerConfigurationVisible = true, libraryVisible = false, selectedNodeId = null)
@@ -265,7 +269,18 @@ class EditorViewModel(
         _state.update { current ->
             val draft = current.draft ?: return@update current
             val index = current.insertionIndex.coerceIn(0, draft.nodes.size)
-            val nodes = draft.nodes.toMutableList().apply { add(index, ActionNode(action = descriptor.createDefault())) }
+            val defaultAction = descriptor.createDefault()
+            val action =
+                if (defaultAction is ShortcutAction.WaitForMediaPlayback) {
+                    val previous = draft.nodes.getOrNull(index - 1)?.action as? ShortcutAction.OpenApplication
+                    defaultAction.copy(
+                        packageName = previous?.packageName ?: defaultAction.packageName,
+                        applicationLabel = previous?.applicationLabel,
+                    )
+                } else {
+                    defaultAction
+                }
+            val nodes = draft.nodes.toMutableList().apply { add(index, ActionNode(action = action)) }
             current.copy(draft = draft.copy(nodes = nodes), libraryVisible = false)
         }
     }
@@ -340,15 +355,15 @@ class EditorViewModel(
             val to = (from + delta).coerceIn(0, nodes.lastIndex)
             if (from < 0 || from == to) return@update state
             val reordered = nodes.toMutableList().apply { add(to, removeAt(from)) }
-            // Reordering makes the natural final action unambiguous again.
-            state.copy(draft = draft.copy(nodes = reordered, finalForegroundNodeId = null))
+            state.copy(draft = draft.copy(nodes = reordered))
         }
     }
 
     fun saveDraft() {
         val draft = _state.value.draft ?: return
-        if (draft.name.isBlank() || draft.nodes.isEmpty()) {
-            _state.update { it.copy(message = "Ajoutez au moins une action avant d’enregistrer.") }
+        val issues = validator.validate(draft)
+        if (issues.isNotEmpty()) {
+            _state.update { it.copy(message = issues.first().message) }
             return
         }
         viewModelScope.launch {
@@ -411,16 +426,7 @@ data class EditorUiState(
         get() = draft?.nodes?.find { it.id == selectedNodeId }
 
     val suggestions: List<ActionDescriptor>
-        get() {
-            val current = draft ?: return emptyList()
-            val kinds =
-                current.nodes
-                    .lastOrNull()
-                    ?.action
-                    ?.let(LocalRecommendations::after)
-                    ?: LocalRecommendations.forTrigger(current.trigger)
-            return kinds.mapNotNull { kind -> ActionCatalog.all.find { it.kind == kind } }.take(3)
-        }
+        get() = emptyList()
 }
 
 enum class Screen { HOME, START, GUIDED_TRIGGER, ACTION_CHOICE, BLUEPRINTS, EDITOR }

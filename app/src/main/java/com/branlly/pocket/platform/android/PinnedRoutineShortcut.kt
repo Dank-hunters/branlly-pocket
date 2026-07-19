@@ -8,11 +8,6 @@ import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import androidx.core.content.getSystemService
 import com.branlly.pocket.R
-import com.branlly.pocket.data.SavedShortcutStore
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
 
 object PinnedRoutineShortcut {
     const val EXTRA_SHORTCUT_ID = "branlly_pinned_shortcut_id"
@@ -41,15 +36,6 @@ class PinnedRoutineReceiver : BroadcastReceiver() {
         intent: Intent,
     ) {
         val id = intent.getStringExtra(PinnedRoutineShortcut.EXTRA_SHORTCUT_ID) ?: return
-        val pending = goAsync()
-        CoroutineScope(Dispatchers.Default).launch {
-            try {
-                SavedShortcutStore(context).shortcuts.first().firstOrNull { it.id.value == id }?.let {
-                    ShortcutExecutor(context.applicationContext).execute(it)
-                }
-            } finally {
-                pending.finish()
-            }
-        }
+        RoutineExecutionService.start(context.applicationContext, id)
     }
 }

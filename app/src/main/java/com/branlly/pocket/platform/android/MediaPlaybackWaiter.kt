@@ -17,10 +17,3 @@ sealed interface MediaWaitResult {
         val reason: String,
     ) : MediaWaitResult
 }
-
-object UnsupportedMediaPlaybackWaiter : MediaPlaybackWaiter {
-    override suspend fun waitForPlayback(
-        packageName: String,
-        timeoutMs: Long,
-    ): MediaWaitResult = MediaWaitResult.Failed("Surveillance de lecture multimédia non implémentée.")
-}

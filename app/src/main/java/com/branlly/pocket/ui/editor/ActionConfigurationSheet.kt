@@ -1,5 +1,7 @@
 package com.branlly.pocket.ui.editor
 
+import android.util.Log
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -8,6 +10,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -19,7 +22,6 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Surface
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -29,9 +31,11 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.graphics.drawable.toBitmap
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.SettingsPanel
@@ -39,11 +43,11 @@ import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.SoundMode
 import com.branlly.pocket.domain.model.TransportMode
 import com.branlly.pocket.domain.model.VolumeStream
-import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.platform.android.InstalledApplication
 import com.branlly.pocket.platform.android.InstalledApplicationCatalog
-import com.branlly.pocket.platform.android.NavigationApps
-import com.branlly.pocket.platform.android.RouteLauncher
+import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
+import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
+import com.branlly.pocket.platform.android.actions.BuiltInProviderCatalog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -55,6 +59,9 @@ fun ActionConfigurationSheet(
     onActionChange: (ShortcutAction) -> Unit,
     onDismiss: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val registry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
+    val registration = registry.registration(node.action.kind)
     ModalBottomSheet(onDismissRequest = onDismiss) {
         Column(
             modifier =
@@ -66,81 +73,20 @@ fun ActionConfigurationSheet(
         ) {
             Column {
                 Text("Configurer l’action", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(node.action.summary(), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(registry.summary(node.action), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             HorizontalDivider()
-            when (val action = node.action) {
-                is ShortcutAction.OpenApplication -> {
-                    ApplicationForm(action, onActionChange)
-                }
-
-                is ShortcutAction.SetVolume -> {
-                    VolumeForm(action, onActionChange)
-                }
-
-                is ShortcutAction.SetBrightness -> {
-                    BrightnessForm(action, onActionChange)
-                }
-
-                is ShortcutAction.Wait -> {
-                    WaitForm(action, onActionChange)
-                }
-
-                is ShortcutAction.WaitForMediaPlayback -> {
-                    val packageName = (action.packageName as? InputValue.Fixed<String>)?.value.orEmpty()
-                    OutlinedTextField(
-                        value = packageName,
-                        onValueChange = { value -> onActionChange(action.copy(packageName = InputValue.Fixed(value.trim()))) },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Package de l’application multimédia") },
-                        singleLine = true,
-                    )
-                    OutlinedTextField(
-                        value = (action.timeoutMillis / 1_000L).toString(),
-                        onValueChange = { value ->
-                            value.toLongOrNull()?.let { seconds ->
-                                onActionChange(
-                                    action.copy(
-                                        timeoutMillis =
-                                            (
-                                                seconds *
-                                                    1_000L
-                                            ).coerceIn(1_000L, 300_000L),
-                                    ),
-                                )
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth(),
-                        label = { Text("Timeout (secondes)") },
-                        singleLine = true,
-                    )
-                }
-
-                is ShortcutAction.SetSoundMode -> {
-                    SoundModeForm(action, onActionChange)
-                }
-
-                is ShortcutAction.OpenSettings -> {
-                    SettingsForm(action, onActionChange)
-                }
-
-                is ShortcutAction.OpenRoute -> {
-                    RouteForm(action, onActionChange)
-                }
-
-                else -> {
-                    Text(
-                        "Le formulaire détaillé de cette action sera ajouté dans la prochaine étape.",
-                        style = MaterialTheme.typography.bodyMedium,
-                    )
-                }
+            if (registration == null || !ActionEditorRegistry.hasProvider(registration.editorKey)) {
+                Text("Cette action existe dans les données mais n’est pas configurable ni exécutable dans cette version.")
+            } else {
+                ActionEditorRegistry.Render(registration.editorKey, node.action, onActionChange)
             }
         }
     }
 }
 
 @Composable
-private fun ApplicationForm(
+internal fun ApplicationForm(
     action: ShortcutAction.OpenApplication,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -161,7 +107,7 @@ private fun ApplicationForm(
                 applications
             } else {
                 applications.filter {
-                    it.label.contains(normalized, ignoreCase = true)
+                    it.label.contains(normalized, ignoreCase = true) || it.packageName.contains(normalized, ignoreCase = true)
                 }
             }
         }
@@ -181,7 +127,92 @@ private fun ApplicationForm(
             onChange(action.copy(packageName = value))
         },
     )
+    OutlinedTextField(
+        value = query,
+        onValueChange = { query = it.take(MAX_SEARCH_LENGTH) },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Rechercher par nom ou package") },
+        singleLine = true,
+    )
+    if (query.isNotBlank()) {
+        LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
+            items(filtered, key = { application -> "${application.packageName}/${application.activityName}" }) { application ->
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            Log.i(
+                                "BranllyApplication",
+                                "APPLICATION_SELECTED label=${application.label} package=${application.packageName}",
+                            )
+                            onChange(
+                                action.copy(
+                                    packageName = InputValue.Fixed(application.packageName),
+                                    applicationLabel = application.label,
+                                    activityName = application.activityName,
+                                ),
+                            )
+                            query = ""
+                        }.padding(10.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Image(
+                        application.icon.toBitmap().asImageBitmap(),
+                        contentDescription = application.label,
+                        modifier = Modifier.size(36.dp),
+                    )
+                    Column(Modifier.padding(start = 10.dp)) {
+                        Text(application.label, fontWeight = FontWeight.Medium)
+                        Text(application.packageName, style = MaterialTheme.typography.bodySmall)
+                    }
+                }
+            }
+        }
+    }
+    if (mode == ValueMode.FIXED) {
+        OutlinedTextField(
+            value = action.applicationLabel.orEmpty(),
+            onValueChange = { value -> onChange(action.copy(applicationLabel = value.take(MAX_SEARCH_LENGTH).ifBlank { null })) },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Nom visible de l’application") },
+            singleLine = true,
+        )
+        OutlinedTextField(
+            value = selectedPackage.orEmpty(),
+            onValueChange = { value ->
+                onChange(action.copy(packageName = InputValue.Fixed(value.trim()), activityName = null))
+            },
+            modifier = Modifier.fillMaxWidth(),
+            label = { Text("Package Android exact") },
+            supportingText = { Text("Sélectionnez une application ci-dessous ; ce champ permet de vérifier la valeur sauvegardée.") },
+            singleLine = true,
+        )
+    }
     if (selectedPackage != null) {
+        val selectedApplication = applications.firstOrNull { it.packageName == selectedPackage }
+        Surface(
+            shape =
+                androidx.compose.foundation.shape
+                    .RoundedCornerShape(12.dp),
+            color = MaterialTheme.colorScheme.primaryContainer,
+        ) {
+            Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                selectedApplication?.let { application ->
+                    Image(
+                        application.icon.toBitmap().asImageBitmap(),
+                        contentDescription = application.label,
+                        modifier = Modifier.size(40.dp),
+                    )
+                }
+                Column(Modifier.padding(start = 10.dp)) {
+                    Text(
+                        selectedApplication?.label ?: action.applicationLabel ?: "Application cible non définie",
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(selectedPackage, style = MaterialTheme.typography.bodySmall)
+                }
+            }
+        }
         val title = (action.searchQuery as? InputValue.Fixed<String>)?.value.orEmpty()
         OutlinedTextField(
             value = title,
@@ -203,7 +234,7 @@ private fun ApplicationForm(
             },
             modifier = Modifier.fillMaxWidth(),
             label = { Text("Lien du titre exact (facultatif)") },
-            supportingText = { Text("Copiez le lien partagé par Spotify ou YouTube Music. Il est prioritaire sur la recherche.") },
+            supportingText = { Text("Copiez un lien HTTPS partagé par l’application multimédia. Il est prioritaire sur la recherche.") },
             singleLine = true,
         )
     }
@@ -224,12 +255,24 @@ private fun ApplicationForm(
                 modifier = Modifier.fillMaxWidth().heightIn(max = 280.dp),
                 verticalArrangement = Arrangement.spacedBy(6.dp),
             ) {
-                items(filtered, key = InstalledApplication::packageName) { application ->
+                items(filtered, key = { application -> "${application.packageName}/${application.activityName}" }) { application ->
                     Surface(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .clickable { onChange(action.copy(packageName = InputValue.Fixed(application.packageName))) },
+                                .clickable {
+                                    Log.i(
+                                        "BranllyApplication",
+                                        "APPLICATION_SELECTED label=${application.label} package=${application.packageName}",
+                                    )
+                                    onChange(
+                                        action.copy(
+                                            packageName = InputValue.Fixed(application.packageName),
+                                            applicationLabel = application.label,
+                                            activityName = application.activityName,
+                                        ),
+                                    )
+                                },
                         shape =
                             androidx.compose.foundation.shape
                                 .RoundedCornerShape(12.dp),
@@ -240,8 +283,95 @@ private fun ApplicationForm(
                                 MaterialTheme.colorScheme.surfaceVariant
                             },
                     ) {
-                        Text(application.label, modifier = Modifier.padding(14.dp), fontWeight = FontWeight.Medium)
+                        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            Image(
+                                application.icon.toBitmap().asImageBitmap(),
+                                contentDescription = application.label,
+                                modifier = Modifier.size(40.dp),
+                            )
+                            Column(Modifier.padding(start = 10.dp)) {
+                                Text(application.label, fontWeight = FontWeight.Medium)
+                                Text(
+                                    application.packageName,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
                     }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun MediaWaitForm(
+    action: ShortcutAction.WaitForMediaPlayback,
+    onChange: (ShortcutAction) -> Unit,
+) {
+    val context = LocalContext.current
+    val applications by produceState<List<InstalledApplication>>(emptyList(), context) {
+        value = withContext(Dispatchers.IO) { InstalledApplicationCatalog(context.applicationContext).load() }
+    }
+    var query by remember { mutableStateOf("") }
+    val selectedPackage = (action.packageName as? InputValue.Fixed<String>)?.value.orEmpty()
+    val selected = applications.firstOrNull { it.packageName == selectedPackage }
+    Text(selected?.label ?: action.applicationLabel ?: "Application cible non définie", fontWeight = FontWeight.SemiBold)
+    Text(selectedPackage.ifBlank { "Sélectionnez une application" }, style = MaterialTheme.typography.bodySmall)
+    OutlinedTextField(
+        value = action.applicationLabel.orEmpty(),
+        onValueChange = { value -> onChange(action.copy(applicationLabel = value.take(MAX_SEARCH_LENGTH).ifBlank { null })) },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Nom visible de l’application") },
+        singleLine = true,
+    )
+    OutlinedTextField(
+        value = selectedPackage,
+        onValueChange = { value -> onChange(action.copy(packageName = InputValue.Fixed(value.trim().take(MAX_SEARCH_LENGTH)))) },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Package Android exact") },
+        singleLine = true,
+    )
+    OutlinedTextField(
+        value = (action.timeoutMillis / 1_000L).toString(),
+        onValueChange = {
+            it.toLongOrNull()?.let { seconds ->
+                onChange(action.copy(timeoutMillis = (seconds * 1_000L).coerceIn(1_000L, 300_000L)))
+            }
+        },
+        modifier = Modifier.fillMaxWidth(),
+        label = { Text("Timeout (secondes)") },
+        singleLine = true,
+    )
+    OutlinedTextField(value = query, onValueChange = {
+        query = it.take(MAX_SEARCH_LENGTH)
+    }, modifier = Modifier.fillMaxWidth(), label = { Text("Rechercher par nom ou package") }, singleLine = true)
+    LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 240.dp)) {
+        items(
+            applications.filter {
+                query.isBlank() || it.label.contains(query, true) || it.packageName.contains(query, true)
+            },
+            key = { application -> "${application.packageName}/${application.activityName}" },
+        ) { application ->
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .clickable {
+                        Log.i("BranllyApplication", "APPLICATION_SELECTED label=${application.label} package=${application.packageName}")
+                        onChange(
+                            action.copy(
+                                packageName = InputValue.Fixed(application.packageName),
+                                applicationLabel = application.label,
+                            ),
+                        )
+                    }.padding(10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Image(application.icon.toBitmap().asImageBitmap(), contentDescription = application.label, modifier = Modifier.size(36.dp))
+                Column(Modifier.padding(start = 10.dp)) {
+                    Text(application.label, fontWeight = FontWeight.Medium)
+                    Text(application.packageName, style = MaterialTheme.typography.bodySmall)
                 }
             }
         }
@@ -251,9 +381,10 @@ private fun ApplicationForm(
 private const val MAX_SEARCH_LENGTH = 80
 private const val MAX_MEDIA_SEARCH_LENGTH = 120
 private const val MAX_MEDIA_LINK_LENGTH = 2_000
+private const val MAX_ROUTE_DESTINATION_LENGTH = 500
 
 @Composable
-private fun VolumeForm(
+internal fun VolumeForm(
     action: ShortcutAction.SetVolume,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -269,15 +400,10 @@ private fun VolumeForm(
         value = action.percent,
         onChange = { onChange(action.copy(percent = it)) },
     )
-    ToggleRow(
-        label = "Restaurer le volume après l’exécution",
-        checked = action.restoreAfterExecution,
-        onCheckedChange = { onChange(action.copy(restoreAfterExecution = it)) },
-    )
 }
 
 @Composable
-private fun BrightnessForm(
+internal fun BrightnessForm(
     action: ShortcutAction.SetBrightness,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -319,7 +445,7 @@ private fun PercentageInput(
 }
 
 @Composable
-private fun WaitForm(
+internal fun WaitForm(
     action: ShortcutAction.Wait,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -334,15 +460,10 @@ private fun WaitForm(
             steps = 298,
         )
     }
-    ToggleRow(
-        label = "Permettre l’annulation pendant l’attente",
-        checked = action.cancellable,
-        onCheckedChange = { onChange(action.copy(cancellable = it)) },
-    )
 }
 
 @Composable
-private fun SoundModeForm(
+internal fun SoundModeForm(
     action: ShortcutAction.SetSoundMode,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -356,7 +477,7 @@ private fun SoundModeForm(
 }
 
 @Composable
-private fun SettingsForm(
+internal fun SettingsForm(
     action: ShortcutAction.OpenSettings,
     onChange: (ShortcutAction) -> Unit,
 ) {
@@ -370,32 +491,31 @@ private fun SettingsForm(
 }
 
 @Composable
-private fun RouteForm(
+internal fun RouteForm(
     action: ShortcutAction.OpenRoute,
     onChange: (ShortcutAction) -> Unit,
 ) {
     val context = LocalContext.current
-    val launcher = RouteLauncher(context)
+    val validation = remember(context) { AndroidActionValidationContext(context.applicationContext) }
+    val providers = BuiltInProviderCatalog.navigationProviders
     val selectedPackage =
         (action.navigationPackage as? InputValue.Fixed<String>)?.value
-            ?: NavigationApps.GOOGLE_MAPS
+            ?: providers.first().packageName
+    val selectedProvider = providers.firstOrNull { it.packageName == selectedPackage }
     val destination = (action.destination as? InputValue.Fixed<String>)?.value.orEmpty()
     val destinationMode = if (action.destination is InputValue.Fixed) ValueMode.FIXED else ValueMode.ASK_AT_RUNTIME
 
     ChoiceRow(
         label = "Application de navigation",
-        choices = NavigationApps.supportedPackages.toList(),
-        selected = selectedPackage,
-        text = { packageName ->
-            val name = if (packageName == NavigationApps.WAZE) "Waze" else "Google Maps"
-            if (launcher.isInstalled(packageName)) name else "$name · non installée"
-        },
-        enabled = launcher::isInstalled,
-        onSelected = { packageName ->
+        choices = providers,
+        selected = selectedProvider ?: providers.first(),
+        text = { provider -> if (validation.isPackageInstalled(provider.packageName)) provider.label else "${provider.label} · non installée" },
+        enabled = { provider -> validation.isPackageInstalled(provider.packageName) },
+        onSelected = { provider ->
             onChange(
                 action.copy(
-                    navigationPackage = InputValue.Fixed(packageName),
-                    transportMode = if (packageName == NavigationApps.WAZE) TransportMode.DRIVING else action.transportMode,
+                    navigationPackage = InputValue.Fixed(provider.packageName),
+                    transportMode = action.transportMode.takeIf { it in provider.supportedModes } ?: provider.supportedModes.first(),
                 ),
             )
         },
@@ -413,7 +533,7 @@ private fun RouteForm(
         OutlinedTextField(
             value = destination,
             onValueChange = { value ->
-                if (value.length <= NavigationApps.MAX_DESTINATION_LENGTH) {
+                if (value.length <= MAX_ROUTE_DESTINATION_LENGTH) {
                     onChange(action.copy(destination = InputValue.Fixed(value)))
                 }
             },
@@ -423,16 +543,17 @@ private fun RouteForm(
             singleLine = true,
         )
     }
-    if (selectedPackage == NavigationApps.GOOGLE_MAPS) {
+    val supportedModes = selectedProvider?.supportedModes.orEmpty()
+    if (supportedModes.size > 1) {
         ChoiceRow(
             label = "Mode de transport",
-            choices = TransportMode.entries,
+            choices = supportedModes.toList(),
             selected = action.transportMode,
             text = { it.label() },
             onSelected = { onChange(action.copy(transportMode = it)) },
         )
-    } else {
-        Text("Waze utilisera le mode voiture.", style = MaterialTheme.typography.bodySmall)
+    } else if (supportedModes.singleOrNull() == TransportMode.DRIVING) {
+        Text("Ce fournisseur utilise le mode voiture.", style = MaterialTheme.typography.bodySmall)
     }
 }
 
@@ -457,18 +578,6 @@ private fun <T> ChoiceRow(
                 )
             }
         }
-    }
-}
-
-@Composable
-private fun ToggleRow(
-    label: String,
-    checked: Boolean,
-    onCheckedChange: (Boolean) -> Unit,
-) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(label, modifier = Modifier.weight(1f))
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 

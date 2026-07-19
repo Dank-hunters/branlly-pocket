@@ -56,8 +56,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.catalog.ActionDescriptor
+import com.branlly.pocket.domain.catalog.visibleDescriptors
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.InputValue
@@ -66,11 +66,7 @@ import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.domain.voice.LocalVoiceCommand
-import com.branlly.pocket.platform.android.ApplicationLaunchResult
-import com.branlly.pocket.platform.android.ApplicationLauncher
-import com.branlly.pocket.platform.android.RouteLaunchResult
-import com.branlly.pocket.platform.android.RouteLauncher
-import com.branlly.pocket.platform.android.ShortcutExecutionResult
+import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.ShortcutExecutor
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
@@ -278,11 +274,16 @@ private fun HomeScreen(
             TextButton(
                 onClick = {
                     context.startActivity(
-                        Intent(Intent.ACTION_VIEW, android.net.Uri.parse("https://github.com/Dank-hunters/branlly-pocket/releases")),
+                        Intent(
+                            Intent.ACTION_VIEW,
+                            android.net.Uri.parse(
+                                "https://github.com/Dank-hunters/branlly-pocket/releases/latest/download/Branlly-Pocket.apk",
+                            ),
+                        ),
                     )
                 },
                 modifier = Modifier.fillMaxWidth().navigationBarsPadding(),
-            ) { Text("↗ Mettre à jour depuis GitHub") }
+            ) { Text("↗ Télécharger la mise à jour") }
         }
     }
 }
@@ -297,6 +298,8 @@ private fun CompactShortcutTile(
     onExport: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
+    val context = LocalContext.current
+    val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
     var confirmDelete by remember { mutableStateOf(false) }
     var menuExpanded by remember { mutableStateOf(false) }
     Card(
@@ -322,7 +325,7 @@ private fun CompactShortcutTile(
                     shortcut.nodes
                         .firstOrNull()
                         ?.action
-                        ?.summary() ?: "Aucune action",
+                        ?.let(actionRegistry::summary) ?: "Aucune action",
                     maxLines = 2,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -387,6 +390,8 @@ private fun SavedShortcutCard(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
     var confirmDelete by remember { mutableStateOf(false) }
     Card(
         modifier = Modifier.fillMaxWidth().clickable(onClick = onLaunch),
@@ -414,7 +419,7 @@ private fun SavedShortcutCard(
                         shortcut.nodes
                             .firstOrNull()
                             ?.action
-                            ?.summary() ?: "Aucune action",
+                            ?.let(actionRegistry::summary) ?: "Aucune action",
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         style = MaterialTheme.typography.bodySmall,
                     )
@@ -504,7 +509,7 @@ private fun ActionChoiceScreen(viewModel: EditorViewModel) {
         MethodCard(
             badge = "DÉPLACEMENT",
             title = "Un itinéraire",
-            description = "Choisir Waze ou Google Maps et une destination.",
+            description = "Choisir une application de navigation et une destination.",
             prominent = false,
             onClick = viewModel::useDepartureBlueprint,
         )
@@ -528,7 +533,7 @@ private fun BlueprintScreen(viewModel: EditorViewModel) {
         MethodCard(
             "PRÊT À TESTER",
             "Je vais partir",
-            "Choisir Waze ou Google Maps et une destination.",
+            "Choisir une application de navigation et une destination.",
             true,
             viewModel::useDepartureBlueprint,
         )
@@ -562,15 +567,6 @@ private fun EditorScreen(
 ) {
     val draft = state.draft ?: return
     val context = LocalContext.current
-    val finalCandidates =
-        draft.nodes.filter {
-            it.enabled && (it.action is ShortcutAction.OpenApplication || it.action is ShortcutAction.OpenRoute)
-        }
-    val automaticPauseCount =
-        draft.nodes.filter(ActionNode::enabled).map(ActionNode::action).zipWithNext().count { (current, next) ->
-            (current is ShortcutAction.OpenApplication || current is ShortcutAction.OpenRoute) &&
-                (next is ShortcutAction.OpenApplication || next is ShortcutAction.OpenRoute)
-        }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -646,67 +642,6 @@ private fun EditorScreen(
                     onDelete = { viewModel.remove(node.id) },
                 )
                 InsertButton { viewModel.showLibrary(index + 1) }
-            }
-            if (automaticPauseCount > 0) {
-                item {
-                    Surface(shape = RoundedCornerShape(14.dp), color = MaterialTheme.colorScheme.secondaryContainer) {
-                        Text(
-                            "Pause automatique de 5 s entre applications externes. Ajoutez Attendre pour choisir un délai différent.",
-                            modifier = Modifier.padding(14.dp),
-                            style = MaterialTheme.typography.bodySmall,
-                        )
-                    }
-                }
-            }
-            if (finalCandidates.isNotEmpty()) {
-                item {
-                    Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceVariant) {
-                        Column(Modifier.fillMaxWidth().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                            Text(
-                                "À laisser affiché à la fin",
-                                style = MaterialTheme.typography.titleMedium,
-                                fontWeight = FontWeight.SemiBold,
-                            )
-                            Text(
-                                "Cette application est ramenée au premier plan après les autres actions.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            )
-                            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                                item {
-                                    val selected = draft.finalForegroundNodeId == null
-                                    OutlinedButton(
-                                        onClick = { viewModel.updateFinalForegroundNode(null) },
-                                        colors =
-                                            if (selected) {
-                                                androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                )
-                                            } else {
-                                                androidx.compose.material3.ButtonDefaults
-                                                    .outlinedButtonColors()
-                                            },
-                                    ) { Text("Dernière action") }
-                                }
-                                items(finalCandidates, key = { it.id.value }) { node ->
-                                    val selected = draft.finalForegroundNodeId == node.id
-                                    OutlinedButton(
-                                        onClick = { viewModel.updateFinalForegroundNode(node.id) },
-                                        colors =
-                                            if (selected) {
-                                                androidx.compose.material3.ButtonDefaults.outlinedButtonColors(
-                                                    containerColor = MaterialTheme.colorScheme.primaryContainer,
-                                                )
-                                            } else {
-                                                androidx.compose.material3.ButtonDefaults
-                                                    .outlinedButtonColors()
-                                            },
-                                    ) { Text(node.action.summary(), maxLines = 1) }
-                                }
-                            }
-                        }
-                    }
-                }
             }
             if (state.suggestions.isNotEmpty()) {
                 item {
@@ -788,6 +723,8 @@ private fun ActionCard(
     onTest: () -> Unit,
     onDelete: () -> Unit,
 ) {
+    val context = LocalContext.current
+    val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
     Card(
         modifier =
             Modifier
@@ -806,7 +743,7 @@ private fun ActionCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("ACTION $index", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(node.action.summary(), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(actionRegistry.summary(node.action), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 }
                 Switch(checked = node.enabled, onCheckedChange = { onToggle() })
             }
@@ -849,7 +786,8 @@ private fun ActionLibrary(
     trigger: Trigger,
     onSelected: (ActionDescriptor) -> Unit,
 ) {
-    val ordered = ActionCatalog.orderedFor(trigger)
+    val context = LocalContext.current
+    val ordered = remember(context, trigger) { AndroidActionRegistry.create(context.applicationContext).visibleDescriptors(trigger) }
     LazyColumn(
         contentPadding =
             androidx.compose.foundation.layout
@@ -977,49 +915,12 @@ private fun testShortcut(
     context: Context,
     shortcut: ShortcutDefinition,
 ) {
-    val action =
-        shortcut.nodes
-            .asSequence()
-            .filter(ActionNode::enabled)
-            .map(ActionNode::action)
-            .firstOrNull { it is ShortcutAction.OpenRoute || it is ShortcutAction.OpenApplication }
-    val message =
-        when (action) {
-            is ShortcutAction.OpenRoute -> {
-                routeLaunchMessage(RouteLauncher(context.applicationContext).launch(action))
-            }
-
-            is ShortcutAction.OpenApplication -> {
-                val packageName = (action.packageName as? InputValue.Fixed<String>)?.value
-                val searchQuery = (action.searchQuery as? InputValue.Fixed<String>)?.value
-                applicationLaunchMessage(ApplicationLauncher(context.applicationContext).launch(packageName, searchQuery))
-            }
-
-            else -> {
-                "Aucune action testable pour le moment."
-            }
-        }
-    if (message != null) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+    Toast.makeText(
+        context,
+        "Enregistrez « ${shortcut.name} », puis lancez-la pour utiliser le même orchestrateur que tous les déclencheurs.",
+        Toast.LENGTH_LONG,
+    ).show()
 }
-
-private fun routeLaunchMessage(result: RouteLaunchResult): String? =
-    when (result) {
-        RouteLaunchResult.Launched -> null
-        RouteLaunchResult.MissingApplication -> "L’application de navigation choisie n’est pas installée."
-        RouteLaunchResult.MissingDestination -> "Indiquez une destination avant de tester."
-        RouteLaunchResult.RuntimeValueRequired -> "La saisie au lancement sera disponible prochainement."
-        RouteLaunchResult.UnsupportedApplication -> "Cette application de navigation n’est pas prise en charge."
-        RouteLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’itinéraire."
-    }
-
-private fun applicationLaunchMessage(result: ApplicationLaunchResult): String? =
-    when (result) {
-        ApplicationLaunchResult.Launched -> null
-        ApplicationLaunchResult.RuntimeValueRequired -> "Choisissez une application avant de tester."
-        ApplicationLaunchResult.InvalidPackage -> "L’application sélectionnée n’est pas valide."
-        ApplicationLaunchResult.MissingApplication -> "L’application sélectionnée n’est plus installée."
-        ApplicationLaunchResult.RejectedBySystem -> "Android a refusé l’ouverture de l’application."
-    }
 
 private fun shortcutGlyph(iconKey: String): String =
     when (iconKey) {

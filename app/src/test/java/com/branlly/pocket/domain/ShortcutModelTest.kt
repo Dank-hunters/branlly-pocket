@@ -1,6 +1,5 @@
 package com.branlly.pocket.domain
 
-import com.branlly.pocket.domain.catalog.ActionCatalog
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.ShortcutAction
@@ -26,19 +25,8 @@ class ShortcutModelTest {
     }
 
     @Test
-    fun `catalog contains unique action kinds`() {
-        assertEquals(
-            ActionCatalog.all.size,
-            ActionCatalog.all
-                .map { it.kind }
-                .distinct()
-                .size,
-        )
-    }
-
-    @Test
     fun `media playback wait is an explicit action`() {
-        val action = ShortcutAction.WaitForMediaPlayback(InputValue.Fixed("com.google.android.apps.youtube.music"))
+        val action = ShortcutAction.WaitForMediaPlayback(InputValue.Fixed("example.media.player"))
         assertEquals(com.branlly.pocket.domain.model.ActionKind.WAIT_FOR_MEDIA_PLAYBACK, action.kind)
     }
 

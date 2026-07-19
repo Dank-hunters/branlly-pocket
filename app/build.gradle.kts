@@ -24,8 +24,8 @@ android {
         applicationId = "com.branlly.pocket"
         minSdk = 26
         targetSdk = 35
-        versionCode = 31
-        versionName = "0.13.4"
+        versionCode = 32
+        versionName = "0.14.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables.useSupportLibrary = true
@@ -97,4 +97,5 @@ dependencies {
     debugImplementation(libs.androidx.compose.ui.tooling)
 
     testImplementation(libs.junit)
+    testImplementation("org.json:json:20240303")
 }
