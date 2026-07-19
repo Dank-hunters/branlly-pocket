@@ -57,6 +57,23 @@ class EditorViewModel(
         }
     }
 
+    fun useBluetoothAction() {
+        val node = ActionNode(action = ShortcutAction.EnableBluetooth())
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(
+                    name = "Bluetooth",
+                    category = ShortcutCategory.OTHER,
+                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
+                    nodes = listOf(node),
+                ),
+                selectedNodeId = node.id,
+                savedShortcuts = state.savedShortcuts,
+            )
+        }
+    }
+
     fun useMusicBlueprint() {
         val node = ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))
         _state.update { state ->

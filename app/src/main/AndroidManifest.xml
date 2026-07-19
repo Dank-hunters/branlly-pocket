@@ -89,6 +89,12 @@
                 android:resource="@xml/branlly_pocket_widget_info" />
         </receiver>
         <activity
+            android:name=".platform.android.BluetoothRequestActivity"
+            android:excludeFromRecents="true"
+            android:exported="false"
+            android:theme="@style/Theme.BranllyPocket.Continuation" />
+
+        <activity
             android:name=".platform.android.ContinuationActivity"
             android:excludeFromRecents="true"
             android:exported="false"

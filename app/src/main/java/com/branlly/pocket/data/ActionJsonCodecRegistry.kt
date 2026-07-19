@@ -61,6 +61,11 @@ internal class ActionJsonCodecRegistry(
 
 private fun defaultCodecs(): List<ActionJsonCodec<out ShortcutAction>> =
     listOf(
+        codec<ShortcutAction.EnableBluetooth>(ActionKind.ENABLE_BLUETOOTH, { action ->
+            JSONObject().put("timeout", action.timeoutMillis)
+        }) { value ->
+            ShortcutAction.EnableBluetooth(value.optLong("timeout", 45_000L).coerceIn(5_000L, 120_000L))
+        },
         codec<ShortcutAction.OpenApplication>(ActionKind.OPEN_APPLICATION, { action ->
             JSONObject()
                 .put("package", encodeInput(action.packageName))

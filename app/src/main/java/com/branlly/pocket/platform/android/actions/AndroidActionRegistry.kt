@@ -66,6 +66,20 @@ object AndroidActionRegistry {
         return ActionRegistry(
             listOf(
                 RegisteredAction(
+                    kind = ActionKind.ENABLE_BLUETOOTH,
+                    actionClass = ShortcutAction.EnableBluetooth::class.java,
+                    title = "Activer le Bluetooth",
+                    description = "Demande système, puis vérification de l’état réel",
+                    category = ActionCategory.DEVICE,
+                    editorKey = ActionEditorKey.BLUETOOTH_ENABLE,
+                    createDefault = { ShortcutAction.EnableBluetooth() },
+                    summary = { "Activer le Bluetooth" },
+                    handler = EnableBluetoothHandler(
+                        capabilityResolver = AndroidBluetoothCapabilityResolver(appContext),
+                        gateway = com.branlly.pocket.platform.android.AndroidBluetoothEnableGateway(appContext),
+                    ),
+                ),
+                RegisteredAction(
                     kind = ActionKind.OPEN_APPLICATION,
                     actionClass = ShortcutAction.OpenApplication::class.java,
                     title = "Ouvrir une application",

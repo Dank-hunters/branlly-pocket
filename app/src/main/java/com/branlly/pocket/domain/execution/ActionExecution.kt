@@ -70,6 +70,7 @@ interface ActionHandler<A : ShortcutAction> {
 }
 
 enum class ActionEditorKey {
+    BLUETOOTH_ENABLE,
     APPLICATION,
     MEDIA_WAIT,
     ROUTE,

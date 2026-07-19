@@ -16,6 +16,10 @@ fun interface ActionEditorProvider {
 object ActionEditorRegistry {
     private val providers: Map<ActionEditorKey, ActionEditorProvider> =
         mapOf(
+            ActionEditorKey.BLUETOOTH_ENABLE to ActionEditorProvider { action, _ ->
+                check(action is ShortcutAction.EnableBluetooth)
+                Text("Android affichera une seule demande système si le Bluetooth est désactivé.")
+            },
             ActionEditorKey.APPLICATION to ActionEditorProvider { action, onChange ->
                 ApplicationForm(action as ShortcutAction.OpenApplication, onChange)
             },

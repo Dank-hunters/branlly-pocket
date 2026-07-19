@@ -73,6 +73,30 @@ CHECKING_STATE
 
 Une Activity interne non exportée utilise Activity Result pour la permission Bluetooth éventuelle puis `BluetoothAdapter.ACTION_REQUEST_ENABLE`. Aucun écran général de paramètres.
 
+### État Phase 2
+
+Implémenté :
+
+- modèle et codec `ENABLE_BLUETOOTH`, stockage V10 rétrocompatible ;
+- `EnableBluetoothWorkflow`, borné à quatre transitions et 45 secondes par défaut ;
+- `AndroidBluetoothCapabilityResolver`, sans effet de bord ;
+- Activity interne non exportée utilisant Activity Result ;
+- permission runtime seulement si absente, puis `ACTION_REQUEST_ENABLE` ;
+- attente événementielle de `ACTION_STATE_CHANGED`, sans polling ;
+- vérification finale stricte de `BluetoothAdapter.STATE_ON` ;
+- formulaire simple sans champ inutile et résumé « Activer le Bluetooth ».
+
+Validation physique Galaxy A53 debug :
+
+- Bluetooth OFF → une seule demande système → autorisation → `STATE_ON` → routine `Completed` ;
+- Bluetooth déjà ON → `Completed` en une transition, sans dialogue ;
+- refus → Bluetooth reste OFF → action `Cancelled` ;
+- après tests : aucun service, résultat Bluetooth, état d’exécution ou notification résiduelle.
+
+Preuves : `/tmp/branlly-physical-tests/v2-bluetooth/`.
+
+Limite connue avant les phases suivantes : le checkpoint générique de workflow est défini mais pas encore intégré à une reprise automatique après destruction complète du processus pendant une demande système. Le résultat Activity est conservé localement et consommable lors d’une nouvelle invocation ; aucun support de redémarrage complet du téléphone n’est annoncé.
+
 ### Phases suivantes
 
 - `PLAY_MEDIA` encapsulera résolution, stratégie, ouverture, demande de lecture et confirmation `STATE_PLAYING` ;
@@ -87,6 +111,8 @@ Un checkpoint est écrit uniquement au début d’une attente externe ou d’une
 APIs événementielles prioritaires : Activity Result, callbacks MediaController, BroadcastReceiver et événements Accessibility filtrés. Le polling V1 média/Bluetooth devra être remplacé ou limité à un fallback borné lors de sa migration.
 
 Toute ressource dynamique doit être libérée en `finally`. Aucun WakeLock ou overlay permanent n’est prévu.
+
+Phase 2 ne contient aucune boucle de polling. L’attente Bluetooth repose sur Activity Result puis un `BroadcastReceiver` dynamique limité au timeout et désinscrit au succès, à l’annulation ou au timeout. Maximum : quatre transitions, une demande système, zéro retry implicite.
 
 ## Sécurité
 

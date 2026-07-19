@@ -8,6 +8,12 @@ import org.junit.Test
 
 class ActionJsonCodecRegistryTest {
     @Test
+    fun `enable bluetooth V2 round trip preserves timeout`() {
+        val action = ShortcutAction.EnableBluetooth(timeoutMillis = 60_000)
+        assertEquals(action, ActionJsonCodecRegistry.DEFAULT.decode(ActionJsonCodecRegistry.DEFAULT.encode(action)))
+    }
+
+    @Test
     fun `open application codec preserves exact technical identity`() {
         val action = ShortcutAction.OpenApplication(
             packageName = InputValue.Fixed("example.player"),

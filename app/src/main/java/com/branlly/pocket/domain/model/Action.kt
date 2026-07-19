@@ -17,6 +17,16 @@ enum class TriggerValueKey { DEVICE_NAME, WIFI_SSID, BATTERY_LEVEL, NFC_TAG }
 sealed interface ShortcutAction {
     val kind: ActionKind
 
+    data class EnableBluetooth(
+        val timeoutMillis: Long = 45_000L,
+    ) : ShortcutAction {
+        init {
+            require(timeoutMillis in 5_000L..120_000L)
+        }
+
+        override val kind = ActionKind.ENABLE_BLUETOOTH
+    }
+
     data class OpenApplication(
         val packageName: InputValue<String>,
         val searchQuery: InputValue<String>? = null,
@@ -148,6 +158,7 @@ sealed interface ShortcutAction {
 }
 
 enum class ActionKind {
+    ENABLE_BLUETOOTH,
     OPEN_APPLICATION,
     WAIT_FOR_MEDIA_PLAYBACK,
     OPEN_WEBSITE,

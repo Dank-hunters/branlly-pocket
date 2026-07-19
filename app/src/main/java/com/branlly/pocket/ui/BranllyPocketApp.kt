@@ -500,10 +500,17 @@ private fun ActionChoiceScreen(viewModel: EditorViewModel) {
         onBack = viewModel::showGuidedTriggers,
     ) {
         MethodCard(
+            badge = "APPAREIL",
+            title = "Activer le Bluetooth",
+            description = "Afficher la demande système uniquement si nécessaire.",
+            prominent = true,
+            onClick = viewModel::useBluetoothAction,
+        )
+        MethodCard(
             badge = "OUVRIR",
             title = "Une application",
             description = "Choisir une application installée sur le téléphone.",
-            prominent = true,
+            prominent = false,
             onClick = viewModel::useMusicBlueprint,
         )
         MethodCard(
