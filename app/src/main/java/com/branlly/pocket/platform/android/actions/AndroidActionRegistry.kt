@@ -110,9 +110,9 @@ object AndroidActionRegistry {
                                     launcher = externalLauncher,
                                     adapter = BuiltInProviderCatalog.mediaProviderAdapters.first { it is GenericMediaProviderAdapter },
                                     commands = AndroidMediaSessionCommandGateway(appContext),
-                                    observerFactory = { targetPackage ->
+                                    observerFactory = { targetPackage, baseline ->
                                         com.branlly.pocket.platform.android
-                                            .AndroidMediaOutcomeObserver(appContext, targetPackage)
+                                            .AndroidMediaOutcomeObserver(appContext, targetPackage, baseline)
                                     },
                                     guidance = AndroidManualMediaGuidance(appContext),
                                 )

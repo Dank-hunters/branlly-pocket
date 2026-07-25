@@ -53,7 +53,7 @@ class PlayMediaHandler(
         if (!capabilities.notificationListenerAvailable) {
             return ActionResult.Failed("Le NotificationListener multimédia est indisponible.", recoverable = true)
         }
-        return coordinatorFactory().execute(action, context)
+        return coordinatorFactory().execute(action, context, context.workflowCheckpoint)
     }
 
     private fun safeMediaUri(raw: String): Boolean =

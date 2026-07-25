@@ -165,9 +165,12 @@ class MediaExecutionSession(
 
     fun state(): MediaExecutionState = state.get().state
 
-    fun currentOperation(): MediaOperation? = state.get().operations.firstOrNull { it.status == MediaOperationStatus.RUNNING }
+    fun currentOperation(): MediaOperation? = state.get().operations.firstOrNull { it.status in ACTIVE_OPERATION_STATUSES }
 
-    fun nextOperation(): MediaOperation? = state.get().operations.firstOrNull { it.status == MediaOperationStatus.NOT_STARTED }
+    fun nextOperation(): MediaOperation? =
+        state.get().operations.firstOrNull {
+            it.available && it.status == MediaOperationStatus.NOT_STARTED && it.executionCount == 0
+        }
 
     fun terminalResult(): MediaExecutionResult? = state.get().terminal
 
@@ -180,7 +183,9 @@ class MediaExecutionSession(
         update { current ->
             if (current.terminal != null) return@update null
             val operation =
-                current.operations.firstOrNull { it.id == id && it.status == MediaOperationStatus.NOT_STARTED } ?: return@update null
+                current.operations.firstOrNull {
+                    it.id == id && it.available && it.status == MediaOperationStatus.NOT_STARTED && it.executionCount == 0
+                } ?: return@update null
             current.copy(
                 state = MediaExecutionState.EXECUTE_OPERATION,
                 version = current.version + 1,
@@ -207,9 +212,7 @@ class MediaExecutionSession(
                 version = current.version + 1,
                 operations =
                     current.operations.map {
-                        if (it.id == id &&
-                            it.status == MediaOperationStatus.RUNNING
-                        ) {
+                        if (it.id == id && it.status in ACTIVE_OPERATION_STATUSES) {
                             it.copy(
                                 status = status,
                                 effectApplied = it.effectApplied || status in EFFECT_APPLIED_STATUSES,
@@ -220,6 +223,26 @@ class MediaExecutionSession(
                     },
             )
         }
+
+    fun suspendForUser(operationId: String): MediaExecutionCheckpoint? {
+        val changed =
+            update { current ->
+                val operation = current.operations.singleOrNull { it.id == operationId } ?: return@update null
+                if (current.terminal != null || current.continuationCreated || operation.status != MediaOperationStatus.RUNNING ||
+                    operation.effectApplied
+                ) {
+                    return@update null
+                }
+                val nextVersion = current.version + 1
+                current.copy(
+                    state = MediaExecutionState.AWAIT_USER_LAUNCH,
+                    version = nextVersion,
+                    continuationCreated = true,
+                    continuationKey = "$executionId:${nodeId.value}:$operationId:$nextVersion",
+                )
+            }
+        return if (changed) checkpoint() else null
+    }
 
     fun markManualGuidanceShown(): Boolean =
         update { current ->
@@ -232,7 +255,9 @@ class MediaExecutionSession(
 
     fun consumeContinuation(): Boolean =
         update { current ->
-            if (current.terminal != null || current.continuationConsumed) {
+            if (current.terminal != null || current.state != MediaExecutionState.AWAIT_USER_LAUNCH ||
+                !current.continuationCreated || current.continuationConsumed
+            ) {
                 null
             } else {
                 current.copy(state = MediaExecutionState.EXECUTE_OPERATION, version = current.version + 1, continuationConsumed = true)
@@ -286,14 +311,42 @@ class MediaExecutionSession(
             is MediaExecutionResult.UserLaunchRequired -> MediaExecutionState.AWAIT_USER_LAUNCH
         }
 
-    private companion object {
-        val EFFECT_APPLIED_STATUSES =
+    companion object {
+        fun restore(
+            checkpoint: MediaExecutionCheckpoint,
+            targetPackage: String,
+            searchQuery: String,
+            mediaUri: String?,
+            selectionPolicy: MediaSelectionPolicy,
+        ): MediaExecutionSession =
+            MediaExecutionSession(
+                executionId = checkpoint.executionId,
+                routineId = checkpoint.routineId,
+                nodeId = checkpoint.nodeId,
+                targetPackage = targetPackage,
+                searchQuery = searchQuery,
+                mediaUri = mediaUri,
+                selectionPolicy = selectionPolicy,
+                baseline = checkpoint.baseline,
+                plan = checkpoint.plan,
+                initialState = checkpoint.state,
+                initialStateVersion = checkpoint.stateVersion,
+                initialContinuationCreated = checkpoint.continuationCreated,
+                initialContinuationConsumed = checkpoint.continuationConsumed,
+                initialContinuationKey = checkpoint.continuationKey,
+                initialManualGuidanceShown = checkpoint.manualGuidanceShown,
+                automaticDeadlineMillis = checkpoint.automaticDeadlineMillis,
+                globalDeadlineMillis = checkpoint.globalDeadlineMillis,
+                startedAtMillis = checkpoint.startedAtMillis,
+            )
+
+        private val EFFECT_APPLIED_STATUSES =
             setOf(
                 MediaOperationStatus.EFFECT_APPLIED,
                 MediaOperationStatus.AWAITING_OUTCOME,
                 MediaOperationStatus.COMPLETED,
             )
-        val ACTIVE_OPERATION_STATUSES =
+        private val ACTIVE_OPERATION_STATUSES =
             setOf(
                 MediaOperationStatus.RUNNING,
                 MediaOperationStatus.EFFECT_APPLIED,

@@ -2,12 +2,15 @@ package com.branlly.pocket.platform.android
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.MediaMetadata
 import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
 import androidx.core.app.NotificationManagerCompat
+import com.branlly.pocket.domain.media.MediaBaselineMetadataState
+import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
 import com.branlly.pocket.domain.media.MediaObservedOutcome
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.media.MediaSessionBaseline
@@ -20,6 +23,7 @@ import kotlin.coroutines.resume
 class AndroidMediaOutcomeObserver(
     context: Context,
     private val targetPackage: String,
+    restoredBaseline: MediaSessionBaseline? = null,
 ) : MediaOutcomeObserver {
     private val appContext = context.applicationContext
     private val component = ComponentName(appContext, BranllyMediaListener::class.java)
@@ -28,7 +32,7 @@ class AndroidMediaOutcomeObserver(
     private val closed = AtomicBoolean(false)
     private var cleanup: (() -> Unit)? = null
 
-    override val baseline: MediaSessionBaseline = captureBaseline()
+    override val baseline: MediaSessionBaseline = restoredBaseline ?: captureBaseline()
 
     override suspend fun awaitOutcome(timeoutMillis: Long): MediaObservedOutcome {
         if (closed.get()) return MediaObservedOutcome.Unavailable("L’observateur média est fermé.")
@@ -137,13 +141,43 @@ class AndroidMediaOutcomeObserver(
                         component,
                     ).filter { it.packageName == targetPackage }
             }.getOrDefault(emptyList())
+        val representative = sessions.firstOrNull()
+        val metadata = representative?.metadata
+        val state = representative?.playbackState
+        val title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE)
+        val artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST)
+        val album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
+        val uri = metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_URI)
+        val metadataCount = listOf(title, artist, album, uri).count { !it.isNullOrBlank() }
         return MediaSessionBaseline(
             playingSessionIds =
                 sessions
-                    .filter {
-                        it.playbackState?.state == PlaybackState.STATE_PLAYING
-                    }.mapTo(mutableSetOf()) { it.sessionToken.hashCode().toString() },
-            knownSessionIds = sessions.mapTo(mutableSetOf()) { it.sessionToken.hashCode().toString() },
+                    .filter { it.playbackState?.state == PlaybackState.STATE_PLAYING }
+                    .mapTo(linkedSetOf()) { it.sessionToken.hashCode().toString() },
+            knownSessionIds = sessions.mapTo(linkedSetOf()) { it.sessionToken.hashCode().toString() },
+            sessionPresent = representative != null,
+            packageName = representative?.packageName,
+            playbackState =
+                when (state?.state) {
+                    null -> MediaBaselinePlaybackState.NONE
+                    PlaybackState.STATE_STOPPED -> MediaBaselinePlaybackState.STOPPED
+                    PlaybackState.STATE_PAUSED -> MediaBaselinePlaybackState.PAUSED
+                    PlaybackState.STATE_PLAYING -> MediaBaselinePlaybackState.PLAYING
+                    else -> MediaBaselinePlaybackState.UNKNOWN
+                },
+            title = title,
+            artist = artist,
+            album = album,
+            mediaUri = uri,
+            sessionId = representative?.sessionToken?.hashCode()?.toString(),
+            positionMillis = state?.position?.takeIf { it >= 0 },
+            capturedAtMillis = System.currentTimeMillis(),
+            metadataState =
+                when (metadataCount) {
+                    0 -> MediaBaselineMetadataState.ABSENT
+                    4 -> MediaBaselineMetadataState.COMPLETE
+                    else -> MediaBaselineMetadataState.PARTIAL
+                },
         )
     }
 }
