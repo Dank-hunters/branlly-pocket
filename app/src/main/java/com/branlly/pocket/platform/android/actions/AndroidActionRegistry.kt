@@ -105,10 +105,13 @@ object AndroidActionRegistry {
                     handler =
                         PlayMediaHandler(
                             capabilityResolver = AndroidMediaCapabilityResolver(appContext, BuiltInProviderCatalog.mediaProviderAdapters),
-                            coordinatorFactory = {
+                            coordinatorFactory = { action ->
                                 PlayMediaCoordinator(
                                     launcher = externalLauncher,
-                                    adapter = BuiltInProviderCatalog.mediaProviderAdapters.first { it is GenericMediaProviderAdapter },
+                                    adapter =
+                                        BuiltInProviderCatalog.mediaProviderAdapters.first {
+                                            it.supports(AppTarget(action.targetPackage, action.activityName))
+                                        },
                                     commands = AndroidMediaSessionCommandGateway(appContext),
                                     observerFactory = { targetPackage, baseline ->
                                         com.branlly.pocket.platform.android

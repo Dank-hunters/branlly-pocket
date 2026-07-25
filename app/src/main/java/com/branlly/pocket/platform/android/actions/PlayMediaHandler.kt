@@ -13,7 +13,7 @@ import com.branlly.pocket.domain.workflow.CapabilityResolver
 
 class PlayMediaHandler(
     private val capabilityResolver: CapabilityResolver<ShortcutAction.PlayMedia, MediaCapabilitySnapshot>,
-    private val coordinatorFactory: () -> PlayMediaCoordinator,
+    private val coordinatorFactory: (ShortcutAction.PlayMedia) -> PlayMediaCoordinator,
 ) : ActionHandler<ShortcutAction.PlayMedia> {
     override val kind = ActionKind.PLAY_MEDIA
 
@@ -53,7 +53,7 @@ class PlayMediaHandler(
         if (!capabilities.notificationListenerAvailable) {
             return ActionResult.Failed("Le NotificationListener multimédia est indisponible.", recoverable = true)
         }
-        return coordinatorFactory().execute(action, context, context.workflowCheckpoint)
+        return coordinatorFactory(action).execute(action, context, context.workflowCheckpoint)
     }
 
     private fun safeMediaUri(raw: String): Boolean =

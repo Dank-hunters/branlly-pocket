@@ -234,7 +234,7 @@ class PlayMediaWorkflowTest {
     private fun handler() =
         PlayMediaHandler(
             capabilityResolver = CapabilityResolver { capabilities() },
-            coordinatorFactory = { error("Validation tests do not execute the coordinator.") },
+            coordinatorFactory = { _ -> error("Validation tests do not execute the coordinator.") },
         )
 
     private fun validation(installed: Boolean) =
