@@ -47,6 +47,12 @@ data class MediaExecutionPlan(
 )
 
 data class MediaExecutionCheckpoint(
+    val executionId: String,
+    val routineId: ShortcutId,
+    val nodeId: NodeId,
+    val startedAtMillis: Long,
+    val automaticDeadlineMillis: Long,
+    val globalDeadlineMillis: Long,
     val state: MediaExecutionState,
     val stateVersion: Int,
     val operationId: String?,
@@ -100,6 +106,7 @@ class MediaExecutionSession(
     initialManualGuidanceShown: Boolean = false,
     val automaticDeadlineMillis: Long,
     val globalDeadlineMillis: Long,
+    val startedAtMillis: Long = System.currentTimeMillis(),
 ) {
     private data class MutableState(
         val state: MediaExecutionState,
@@ -182,6 +189,12 @@ class MediaExecutionSession(
     fun checkpoint(): MediaExecutionCheckpoint {
         val current = state.get()
         return MediaExecutionCheckpoint(
+            executionId = executionId,
+            routineId = routineId,
+            nodeId = nodeId,
+            startedAtMillis = startedAtMillis,
+            automaticDeadlineMillis = automaticDeadlineMillis,
+            globalDeadlineMillis = globalDeadlineMillis,
             state = current.state,
             stateVersion = current.version,
             operationId = current.operations.firstOrNull { it.status == MediaOperationStatus.RUNNING }?.id,

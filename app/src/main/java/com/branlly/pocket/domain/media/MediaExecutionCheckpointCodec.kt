@@ -10,6 +10,12 @@ object MediaExecutionCheckpointCodec {
     fun encode(checkpoint: MediaExecutionCheckpoint): String =
         JSONObject()
             .put("version", VERSION)
+            .put("executionId", checkpoint.executionId)
+            .put("routineId", checkpoint.routineId.value)
+            .put("nodeId", checkpoint.nodeId.value)
+            .put("startedAtMillis", checkpoint.startedAtMillis)
+            .put("automaticDeadlineMillis", checkpoint.automaticDeadlineMillis)
+            .put("globalDeadlineMillis", checkpoint.globalDeadlineMillis)
             .put("state", checkpoint.state.name)
             .put("stateVersion", checkpoint.stateVersion)
             .put("operationId", checkpoint.operationId)
@@ -70,20 +76,34 @@ object MediaExecutionCheckpointCodec {
                         )
                     }
                 }
+            val executionId = value.getString("executionId").takeIf(String::isNotBlank) ?: return null
+            val routineId =
+                com.branlly.pocket.domain.model
+                    .ShortcutId(value.getString("routineId").takeIf(String::isNotBlank) ?: return null)
+            val nodeId =
+                com.branlly.pocket.domain.model
+                    .NodeId(value.getString("nodeId").takeIf(String::isNotBlank) ?: return null)
+            val startedAt = value.getLong("startedAtMillis")
+            val automaticDeadline = value.getLong("automaticDeadlineMillis")
+            val globalDeadline = value.getLong("globalDeadlineMillis")
+            if (globalDeadline < startedAt || automaticDeadline > globalDeadline) return null
             MediaExecutionCheckpoint(
-                state,
-                value.getInt("stateVersion"),
-                value.optString("operationId").ifBlank {
-                    null
-                },
-                value.getBoolean(
-                    "continuationConsumed",
-                ),
-                value.getBoolean(
-                    "manualAssistanceShown",
-                ),
-                MediaSessionBaseline(strings("baselinePlaying"), strings("baselineKnown")),
-                MediaExecutionPlan(operations),
+                executionId = executionId,
+                routineId = routineId,
+                nodeId = nodeId,
+                startedAtMillis = startedAt,
+                automaticDeadlineMillis = automaticDeadline,
+                globalDeadlineMillis = globalDeadline,
+                state = state,
+                stateVersion = value.getInt("stateVersion"),
+                operationId =
+                    value.optString("operationId").ifBlank {
+                        null
+                    },
+                continuationConsumed = value.getBoolean("continuationConsumed"),
+                manualGuidanceShown = value.getBoolean("manualAssistanceShown"),
+                baseline = MediaSessionBaseline(strings("baselinePlaying"), strings("baselineKnown")),
+                plan = MediaExecutionPlan(operations),
             )
         }.getOrNull()
 }
