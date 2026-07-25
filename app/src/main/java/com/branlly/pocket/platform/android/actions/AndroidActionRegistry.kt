@@ -23,14 +23,15 @@ import com.branlly.pocket.platform.android.AndroidMediaPlaybackWaiter
 class AndroidActionValidationContext(
     private val context: Context,
 ) : ActionValidationContext {
-    override fun isPackageInstalled(packageName: String): Boolean = runCatching {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0)).enabled
-        } else {
-            @Suppress("DEPRECATION")
-            context.packageManager.getApplicationInfo(packageName, 0).enabled
-        }
-    }.getOrDefault(false)
+    override fun isPackageInstalled(packageName: String): Boolean =
+        runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                context.packageManager.getApplicationInfo(packageName, PackageManager.ApplicationInfoFlags.of(0)).enabled
+            } else {
+                @Suppress("DEPRECATION")
+                context.packageManager.getApplicationInfo(packageName, 0).enabled
+            }
+        }.getOrDefault(false)
 
     override fun isPackageLaunchable(packageName: String): Boolean =
         context.packageManager.getLaunchIntentForPackage(packageName) != null ||
@@ -39,7 +40,11 @@ class AndroidActionValidationContext(
     private fun queryLauncher(packageName: String): Boolean {
         val intent = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(packageName)
         return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            context.packageManager.queryIntentActivities(intent, PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong())).isNotEmpty()
+            context.packageManager
+                .queryIntentActivities(
+                    intent,
+                    PackageManager.ResolveInfoFlags.of(PackageManager.MATCH_ALL.toLong()),
+                ).isNotEmpty()
         } else {
             @Suppress("DEPRECATION")
             context.packageManager.queryIntentActivities(intent, PackageManager.MATCH_ALL).isNotEmpty()
@@ -50,7 +55,10 @@ class AndroidActionValidationContext(
 class AndroidExecutionLogger(
     private val appPackage: String,
 ) : ExecutionLogger {
-    override fun log(event: String, fields: Map<String, Any?>) {
+    override fun log(
+        event: String,
+        fields: Map<String, Any?>,
+    ) {
         val values = fields.entries.joinToString(" ") { (key, value) -> "$key=$value" }
         Log.i(TAG, "APP_PACKAGE=$appPackage event=$event $values")
     }
@@ -75,10 +83,13 @@ object AndroidActionRegistry {
                     editorKey = ActionEditorKey.BLUETOOTH_ENABLE,
                     createDefault = { ShortcutAction.EnableBluetooth() },
                     summary = { "Activer le Bluetooth" },
-                    handler = EnableBluetoothHandler(
-                        capabilityResolver = AndroidBluetoothCapabilityResolver(appContext),
-                        gateway = com.branlly.pocket.platform.android.AndroidBluetoothEnableGateway(appContext),
-                    ),
+                    handler =
+                        EnableBluetoothHandler(
+                            capabilityResolver = AndroidBluetoothCapabilityResolver(appContext),
+                            gateway =
+                                com.branlly.pocket.platform.android
+                                    .AndroidBluetoothEnableGateway(appContext),
+                        ),
                 ),
                 RegisteredAction(
                     kind = ActionKind.PLAY_MEDIA,
@@ -91,28 +102,22 @@ object AndroidActionRegistry {
                     summary = { action ->
                         "Jouer « ${action.searchQuery.ifBlank { "média" }} » avec ${action.targetAppLabel.ifBlank { "une application" }}"
                     },
-                    handler = PlayMediaHandler(
-                        capabilityResolver = AndroidMediaCapabilityResolver(appContext, BuiltInProviderCatalog.mediaProviderAdapters),
-                        strategyFactory = { action ->
-                            val adapter = BuiltInProviderCatalog.mediaProviderAdapters.first { candidate ->
-                                candidate.supports(AppTarget(action.targetPackage, action.activityName))
-                            }
-                            val waiter = AndroidMediaPlaybackWaiter(appContext)
-                            listOf(
-                                DirectUriMediaStrategy(externalLauncher, adapter, waiter),
-                                MediaSessionPlaybackStrategy(AndroidMediaSessionCommandGateway(appContext), waiter),
-                                ProviderIntentMediaStrategy(externalLauncher, adapter, waiter),
-                                UnavailableMediaAutomationStrategy(),
-                                ManualFallbackMediaStrategy(
-                                    appContext,
-                                    externalLauncher,
-                                    adapter,
-                                    AndroidManualMediaGuidance(appContext),
-                                    waiter,
-                                ),
-                            )
-                        },
-                    ),
+                    handler =
+                        PlayMediaHandler(
+                            capabilityResolver = AndroidMediaCapabilityResolver(appContext, BuiltInProviderCatalog.mediaProviderAdapters),
+                            coordinatorFactory = {
+                                PlayMediaCoordinator(
+                                    launcher = externalLauncher,
+                                    adapter = BuiltInProviderCatalog.mediaProviderAdapters.first { it is GenericMediaProviderAdapter },
+                                    commands = AndroidMediaSessionCommandGateway(appContext),
+                                    observerFactory = { targetPackage ->
+                                        com.branlly.pocket.platform.android
+                                            .AndroidMediaOutcomeObserver(appContext, targetPackage)
+                                    },
+                                    guidance = AndroidManualMediaGuidance(appContext),
+                                )
+                            },
+                        ),
                 ),
                 RegisteredAction(
                     kind = ActionKind.OPEN_APPLICATION,
@@ -126,12 +131,13 @@ object AndroidActionRegistry {
                         val packageName = (action.packageName as? InputValue.Fixed<String>)?.value ?: "cible non définie"
                         "Ouvrir ${action.applicationLabel ?: packageName} · $packageName"
                     },
-                    handler = OpenApplicationHandler(
-                        context = appContext,
-                        launcher = externalLauncher,
-                        adapters = BuiltInProviderCatalog.mediaAdapters,
-                        fallback = GenericMediaAppAdapter(),
-                    ),
+                    handler =
+                        OpenApplicationHandler(
+                            context = appContext,
+                            launcher = externalLauncher,
+                            adapters = BuiltInProviderCatalog.mediaAdapters,
+                            fallback = GenericMediaAppAdapter(),
+                        ),
                 ),
                 RegisteredAction(
                     kind = ActionKind.OPEN_ROUTE,
@@ -141,10 +147,11 @@ object AndroidActionRegistry {
                     category = ActionCategory.OPEN,
                     editorKey = ActionEditorKey.ROUTE,
                     createDefault = { ShortcutAction.OpenRoute(InputValue.AskAtRuntime, InputValue.AskAtRuntime) },
-                    handler = OpenRouteHandler(
-                        externalLauncher,
-                        BuiltInProviderCatalog.navigationAdapters,
-                    ),
+                    handler =
+                        OpenRouteHandler(
+                            externalLauncher,
+                            BuiltInProviderCatalog.navigationAdapters,
+                        ),
                 ),
                 RegisteredAction(
                     kind = ActionKind.OPEN_SETTINGS,
