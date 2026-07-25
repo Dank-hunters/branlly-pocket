@@ -14,6 +14,8 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -67,6 +69,7 @@ fun ActionConfigurationSheet(
             modifier =
                 Modifier
                     .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
                     .navigationBarsPadding()
                     .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp),
@@ -509,7 +512,9 @@ internal fun RouteForm(
         label = "Application de navigation",
         choices = providers,
         selected = selectedProvider ?: providers.first(),
-        text = { provider -> if (validation.isPackageInstalled(provider.packageName)) provider.label else "${provider.label} · non installée" },
+        text = { provider ->
+            if (validation.isPackageInstalled(provider.packageName)) provider.label else "${provider.label} · non installée"
+        },
         enabled = { provider -> validation.isPackageInstalled(provider.packageName) },
         onSelected = { provider ->
             onChange(

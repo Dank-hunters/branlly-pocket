@@ -9,50 +9,66 @@ import android.os.IBinder
 import android.util.Log
 import androidx.core.app.NotificationCompat
 import com.branlly.pocket.R
+import com.branlly.pocket.data.PersistentRoutineExecutionStateStore
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.execution.ContinuationIdentity
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.util.UUID
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
 /** Foreground transport for every new, resumed, cancelled or expired execution command. */
 class RoutineExecutionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val activeCommands = AtomicInteger(0)
+    private val executionJobs = ConcurrentHashMap<String, Job>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val sourceIntent = intent ?: Intent().setAction(ACTION_START)
         val command = sourceIntent.action ?: ACTION_START
         activeCommands.incrementAndGet()
         startForeground(NOTIFICATION_ID, notification("Routine en cours", "Préparation…"))
-        scope.launch {
+        val executionId = when (command) {
+            ACTION_START, ACTION_TEST, ACTION_CANCEL_ACTIVE -> sourceIntent.getStringExtra(EXTRA_EXECUTION_ID)
+            ACTION_RESUME -> ContinuationIntentExtras.read(sourceIntent)?.executionId
+            else -> null
+        }
+        val job = scope.launch(start = CoroutineStart.LAZY) {
             try {
                 val result = when (command) {
                     ACTION_START -> executeNew(sourceIntent)
                     ACTION_RESUME -> resume(sourceIntent)
+                    ACTION_TEST -> executeTransient(sourceIntent)
                     ACTION_CANCEL -> cancel(sourceIntent, expired = false)
                     ACTION_EXPIRE -> cancel(sourceIntent, expired = true)
+                    ACTION_CANCEL_ACTIVE -> cancelActive(sourceIntent)
                     else -> RoutineExecutionResult.ContinuationRejected("Commande inconnue.")
                 }
                 Log.i(TAG, "APP_PACKAGE=$packageName command=$command state=FINISHED result=$result timestamp=${System.currentTimeMillis()}")
             } catch (error: Throwable) {
                 Log.e(TAG, "APP_PACKAGE=$packageName command=$command state=CRASHED", error)
             } finally {
+                if (command != ACTION_CANCEL_ACTIVE) executionId?.let { executionJobs.remove(it) }
                 if (activeCommands.decrementAndGet() == 0) stopSelf()
             }
         }
+        if (command != ACTION_CANCEL_ACTIVE) executionId?.let { executionJobs[it] = job }
+        job.start()
         return START_NOT_STICKY
     }
 
     private suspend fun executeNew(intent: Intent): RoutineExecutionResult {
         val shortcutId = intent.getStringExtra(EXTRA_SHORTCUT_ID)
             ?: return RoutineExecutionResult.ContinuationRejected("Routine absente.")
-        val executionId = UUID.randomUUID().toString()
+        val executionId = intent.getStringExtra(EXTRA_EXECUTION_ID)
+            ?: return RoutineExecutionResult.ContinuationRejected("Identifiant d’exécution absent.")
         val shortcut = SavedShortcutStore(applicationContext).shortcuts.first().firstOrNull { it.id.value == shortcutId }
             ?: return RoutineExecutionResult.ContinuationRejected("Routine introuvable.")
         Log.i(
@@ -61,6 +77,15 @@ class RoutineExecutionService : Service() {
         )
         update(shortcut.name, "Exécution en arrière-plan")
         return RoutineOrchestrator.execute(applicationContext, shortcut, executionId)
+    }
+
+    private suspend fun executeTransient(intent: Intent): RoutineExecutionResult {
+        val executionId = intent.getStringExtra(EXTRA_EXECUTION_ID)
+            ?: return RoutineExecutionResult.ContinuationRejected("Identifiant d’exécution absent.")
+        val snapshot = intent.getStringExtra(EXTRA_ROUTINE_SNAPSHOT)
+            ?.let { SavedShortcutStore(applicationContext).decodeSnapshot(it) }
+            ?: return RoutineExecutionResult.ContinuationRejected("Action de test invalide.")
+        return RoutineOrchestrator.execute(applicationContext, snapshot, executionId)
     }
 
     private suspend fun resume(intent: Intent): RoutineExecutionResult {
@@ -79,6 +104,14 @@ class RoutineExecutionService : Service() {
             "APP_PACKAGE=$packageName execution=${identity.executionId} continuation=${identity.continuationId} node=${identity.nodeId.value} state=${if (expired) "EXPIRED" else "CANCEL_REQUESTED"}",
         )
         return RoutineOrchestrator.cancel(applicationContext, identity, expired)
+    }
+
+    private fun cancelActive(intent: Intent): RoutineExecutionResult {
+        val executionId = intent.getStringExtra(EXTRA_EXECUTION_ID)
+            ?: return RoutineExecutionResult.ContinuationRejected("Identifiant d’exécution absent.")
+        executionJobs.remove(executionId)?.cancel()
+        PersistentRoutineExecutionStateStore(applicationContext).finish(executionId)
+        return RoutineExecutionResult.Cancelled("Annulation utilisateur.")
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -107,20 +140,39 @@ class RoutineExecutionService : Service() {
     companion object {
         const val ACTION_START = "com.branlly.pocket.action.START_ROUTINE"
         const val ACTION_RESUME = "com.branlly.pocket.action.RESUME_ROUTINE"
+        const val ACTION_TEST = "com.branlly.pocket.action.TEST_ROUTINE"
         const val ACTION_CANCEL = "com.branlly.pocket.action.CANCEL_ROUTINE"
         const val ACTION_EXPIRE = "com.branlly.pocket.action.EXPIRE_ROUTINE"
+        const val ACTION_CANCEL_ACTIVE = "com.branlly.pocket.action.CANCEL_ACTIVE_ROUTINE"
         private const val CHANNEL = "routine_execution"
         private const val NOTIFICATION_ID = 4102
         private const val EXTRA_SHORTCUT_ID = "shortcut_id"
+        private const val EXTRA_EXECUTION_ID = "execution_id"
+        private const val EXTRA_ROUTINE_SNAPSHOT = "routine_snapshot"
         private const val TAG = "BranllyRoutine"
 
         fun start(context: Context, shortcutId: String) {
             context.startForegroundService(
                 Intent(context, RoutineExecutionService::class.java)
                     .setAction(ACTION_START)
-                    .putExtra(EXTRA_SHORTCUT_ID, shortcutId),
+                    .putExtra(EXTRA_SHORTCUT_ID, shortcutId)
+                    .putExtra(EXTRA_EXECUTION_ID, UUID.randomUUID().toString()),
             )
         }
+
+        fun startTransient(context: Context, routine: com.branlly.pocket.domain.model.ShortcutDefinition) {
+            context.startForegroundService(
+                Intent(context, RoutineExecutionService::class.java)
+                    .setAction(ACTION_TEST)
+                    .putExtra(EXTRA_EXECUTION_ID, UUID.randomUUID().toString())
+                    .putExtra(EXTRA_ROUTINE_SNAPSHOT, SavedShortcutStore(context.applicationContext).encodeSnapshot(routine)),
+            )
+        }
+
+        fun cancelActiveIntent(context: Context, executionId: String): Intent =
+            Intent(context, RoutineExecutionService::class.java)
+                .setAction(ACTION_CANCEL_ACTIVE)
+                .putExtra(EXTRA_EXECUTION_ID, executionId)
 
         fun resumeIntent(context: Context, identity: ContinuationIdentity): Intent =
             ContinuationIntentExtras.put(

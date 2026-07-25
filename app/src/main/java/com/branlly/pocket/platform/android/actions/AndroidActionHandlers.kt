@@ -101,6 +101,10 @@ class WaitForMediaPlaybackHandler(
         return when (val result = waiter.waitForPlayback(packageName, action.timeoutMillis)) {
             MediaWaitResult.Playing -> ActionResult.Completed
             MediaWaitResult.TimedOut -> ActionResult.TimedOut("La lecture multimédia a expiré.")
+            MediaWaitResult.SessionAbsent -> ActionResult.TimedOut("Aucune session multimédia cible n’a été détectée.")
+            MediaWaitResult.PermissionMissing -> ActionResult.PermissionRequired("Autorisez l’accès aux notifications pour surveiller la lecture.")
+            MediaWaitResult.ListenerUnavailable -> ActionResult.Failed("Le service de surveillance multimédia est indisponible.", recoverable = true)
+            is MediaWaitResult.ServiceUnavailable -> ActionResult.Failed(result.reason, recoverable = true)
             is MediaWaitResult.Failed -> ActionResult.Failed(result.reason, recoverable = true)
         }
     }

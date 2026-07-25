@@ -16,9 +16,9 @@ data class ActionDescriptor(
 )
 
 /** Presentation is derived from the executable registry; there is no second support list. */
-fun ActionRegistry.visibleDescriptors(trigger: Trigger): List<ActionDescriptor> {
+fun ActionRegistry.visibleDescriptors(trigger: Trigger, includeAdvanced: Boolean = false): List<ActionDescriptor> {
     val priorities = LocalRecommendations.forTrigger(trigger)
-    return visibleActions()
+    return visibleActions(includeAdvanced)
         .map { registration -> registration.toDescriptor() }
         .sortedWith(
             compareBy<ActionDescriptor> { priorities.indexOf(it.kind).orLast() }

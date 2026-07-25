@@ -27,6 +27,27 @@ sealed interface ShortcutAction {
         override val kind = ActionKind.ENABLE_BLUETOOTH
     }
 
+    data class PlayMedia(
+        val targetAppLabel: String,
+        val targetPackage: String,
+        val activityName: String? = null,
+        val searchQuery: String,
+        val mediaUri: String? = null,
+        val artist: String? = null,
+        val preferredContentType: PreferredMediaContentType = PreferredMediaContentType.AUTO,
+        val selectionPolicy: MediaSelectionPolicy = MediaSelectionPolicy.BEST_PLAYABLE_MATCH,
+        val timeoutMs: Long = 120_000L,
+        val allowManualFallback: Boolean = true,
+        val allowAdvancedAutomation: Boolean = false,
+        val errorStrategy: MediaErrorStrategy = MediaErrorStrategy.TRY_NEXT_STRATEGY,
+    ) : ShortcutAction {
+        init {
+            require(timeoutMs in 15_000L..300_000L)
+        }
+
+        override val kind = ActionKind.PLAY_MEDIA
+    }
+
     data class OpenApplication(
         val packageName: InputValue<String>,
         val searchQuery: InputValue<String>? = null,
@@ -159,6 +180,7 @@ sealed interface ShortcutAction {
 
 enum class ActionKind {
     ENABLE_BLUETOOTH,
+    PLAY_MEDIA,
     OPEN_APPLICATION,
     WAIT_FOR_MEDIA_PLAYBACK,
     OPEN_WEBSITE,
@@ -183,6 +205,12 @@ enum class ActionCategory { OPEN, DEVICE, COMMUNICATE, ORGANIZE, CONTROL }
 enum class TransportMode { DRIVING, WALKING, BICYCLING, TRANSIT }
 
 enum class VolumeStream { MEDIA, RING, ALARM }
+
+enum class PreferredMediaContentType { AUTO, SONG, VIDEO, PLAYLIST, PODCAST }
+
+enum class MediaSelectionPolicy { BEST_PLAYABLE_MATCH, FIRST_PLAYABLE, EXACT_MATCH, ASK_USER }
+
+enum class MediaErrorStrategy { TRY_NEXT_STRATEGY, STOP_ON_FIRST_FAILURE }
 
 enum class SettingsPanel { BLUETOOTH, WIFI, BATTERY, DISPLAY, SOUND }
 

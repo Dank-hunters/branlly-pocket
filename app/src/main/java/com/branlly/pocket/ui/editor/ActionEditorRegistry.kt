@@ -20,6 +20,9 @@ object ActionEditorRegistry {
                 check(action is ShortcutAction.EnableBluetooth)
                 Text("Android affichera une seule demande système si le Bluetooth est désactivé.")
             },
+            ActionEditorKey.PLAY_MEDIA to ActionEditorProvider { action, onChange ->
+                PlayMediaForm(action as ShortcutAction.PlayMedia, onChange)
+            },
             ActionEditorKey.APPLICATION to ActionEditorProvider { action, onChange ->
                 ApplicationForm(action as ShortcutAction.OpenApplication, onChange)
             },

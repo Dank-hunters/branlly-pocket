@@ -4,6 +4,7 @@ import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutId
+import com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint
 
 sealed interface ActionResult {
     data object Completed : ActionResult
@@ -23,6 +24,7 @@ sealed interface ActionResult {
 
     data class UserActionRequired(
         val reason: String,
+        val workflowCheckpoint: ActionWorkflowCheckpoint? = null,
     ) : ActionResult
 
     data class PermissionRequired(
@@ -53,6 +55,7 @@ data class ActionExecutionContext(
     val logger: ExecutionLogger,
     /** True only for the node explicitly resumed by a user notification tap. */
     val userInitiated: Boolean = false,
+    val workflowCheckpoint: ActionWorkflowCheckpoint? = null,
 )
 
 interface ActionHandler<A : ShortcutAction> {
@@ -71,6 +74,7 @@ interface ActionHandler<A : ShortcutAction> {
 
 enum class ActionEditorKey {
     BLUETOOTH_ENABLE,
+    PLAY_MEDIA,
     APPLICATION,
     MEDIA_WAIT,
     ROUTE,
@@ -92,6 +96,7 @@ data class RegisteredAction<A : ShortcutAction>(
     val summary: (A) -> String = { title },
     val handler: ActionHandler<A>,
     val visibleInEditor: Boolean = true,
+    val advancedOnly: Boolean = false,
 ) {
     init {
         require(handler.kind == kind)
@@ -111,7 +116,8 @@ class ActionRegistry(
 
     fun registration(kind: ActionKind): RegisteredAction<out ShortcutAction>? = byKind[kind]
 
-    fun visibleActions(): List<RegisteredAction<out ShortcutAction>> = actions.filter(RegisteredAction<*>::visibleInEditor)
+    fun visibleActions(includeAdvanced: Boolean = false): List<RegisteredAction<out ShortcutAction>> =
+        actions.filter { it.visibleInEditor && (includeAdvanced || !it.advancedOnly) }
 
     fun summary(action: ShortcutAction): String {
         val registration = byKind[action.kind] ?: return "Action non prise en charge · ${action.kind}"

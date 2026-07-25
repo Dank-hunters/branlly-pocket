@@ -2,57 +2,107 @@ package com.branlly.pocket.platform.android
 
 import android.content.ComponentName
 import android.content.Context
+import android.media.session.MediaController
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
-import android.util.Log
+import android.os.Handler
+import android.os.Looper
 import androidx.core.app.NotificationManagerCompat
-import kotlinx.coroutines.delay
+import com.branlly.pocket.domain.media.ExactPackagePlaybackTracker
+import com.branlly.pocket.domain.media.MediaPlaybackStatus
+import com.branlly.pocket.domain.media.MediaSessionSnapshot
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.coroutines.resume
 
-/** Exact-package MediaSession observer resilient to session replacement and multiple sessions. */
+/** Event-driven exact-package observer resilient to replacement and multiple concurrent sessions. */
 class AndroidMediaPlaybackWaiter(
-    private val context: Context,
+    context: Context,
 ) : MediaPlaybackWaiter {
-    override suspend fun waitForPlayback(
-        packageName: String,
-        timeoutMs: Long,
-    ): MediaWaitResult {
+    private val appContext = context.applicationContext
+
+    override suspend fun waitForPlayback(packageName: String, timeoutMs: Long): MediaWaitResult {
         if (packageName.isBlank()) return MediaWaitResult.Failed("Le package multimédia est vide.")
-        val listener = ComponentName(context, BranllyMediaListener::class.java)
-        if (context.packageName !in NotificationManagerCompat.getEnabledListenerPackages(context)) {
-            return MediaWaitResult.Failed("Accès aux notifications requis pour surveiller la lecture média.")
+        if (appContext.packageName !in NotificationManagerCompat.getEnabledListenerPackages(appContext)) {
+            return MediaWaitResult.PermissionMissing
         }
-        val manager = context.getSystemService(MediaSessionManager::class.java)
-        var accessFailure: String? = null
-        val playing = withTimeoutOrNull(timeoutMs) {
-            while (true) {
-                val sessions = try {
-                    manager.getActiveSessions(listener)
-                } catch (error: SecurityException) {
-                    accessFailure = "Android refuse l’accès aux sessions multimédias."
-                    return@withTimeoutOrNull false
+        if (!BranllyMediaListener.isConnected()) return MediaWaitResult.ListenerUnavailable
+        val component = ComponentName(appContext, BranllyMediaListener::class.java)
+        val manager = appContext.getSystemService(MediaSessionManager::class.java)
+        val handler = Handler(Looper.getMainLooper())
+        val tracker = ExactPackagePlaybackTracker(packageName)
+        val result = withTimeoutOrNull(timeoutMs) {
+            suspendCancellableCoroutine<MediaWaitResult> { continuation ->
+                val finished = AtomicBoolean(false)
+                val callbacks = mutableMapOf<MediaController, MediaController.Callback>()
+                lateinit var activeSessionsListener: MediaSessionManager.OnActiveSessionsChangedListener
+
+                fun cleanup() {
+                    if (!finished.compareAndSet(false, true)) return
+                    callbacks.forEach { (controller, callback) -> runCatching { controller.unregisterCallback(callback) } }
+                    callbacks.clear()
+                    runCatching { manager.removeOnActiveSessionsChangedListener(activeSessionsListener) }
+                }
+
+                fun complete(value: MediaWaitResult) {
+                    if (!continuation.isActive) return
+                    cleanup()
+                    continuation.resume(value)
+                }
+
+                fun observe(sessions: List<MediaController>) {
+                    if (finished.get()) return
+                    val targets = sessions.filter { it.packageName == packageName }
+                    val snapshots = sessions.map { controller ->
+                        MediaSessionSnapshot(
+                            sessionId = controller.sessionToken.hashCode().toString(),
+                            packageName = controller.packageName,
+                            status = when (controller.playbackState?.state) {
+                                PlaybackState.STATE_PLAYING -> MediaPlaybackStatus.PLAYING
+                                PlaybackState.STATE_PAUSED -> MediaPlaybackStatus.PAUSED
+                                else -> MediaPlaybackStatus.OTHER
+                            },
+                        )
+                    }
+                    if (tracker.observe(snapshots)) {
+                        complete(MediaWaitResult.Playing)
+                        return
+                    }
+                    callbacks.filterKeys { it !in targets }.forEach { (controller, callback) ->
+                        runCatching { controller.unregisterCallback(callback) }
+                        callbacks.remove(controller)
+                    }
+                    targets.filterNot(callbacks::containsKey).forEach { controller ->
+                        val callback = object : MediaController.Callback() {
+                            override fun onPlaybackStateChanged(state: PlaybackState?) {
+                                if (state?.state == PlaybackState.STATE_PLAYING) complete(MediaWaitResult.Playing)
+                            }
+
+                            override fun onSessionDestroyed() {
+                                runCatching { manager.getActiveSessions(component) }
+                                    .onSuccess(::observe)
+                                    .onFailure { complete(MediaWaitResult.ServiceUnavailable(it.message ?: "Session média indisponible.")) }
+                            }
+                        }
+                        callbacks[controller] = callback
+                        runCatching { controller.registerCallback(callback, handler) }
+                            .onFailure { complete(MediaWaitResult.ServiceUnavailable(it.message ?: "Callback média indisponible.")) }
+                    }
+                }
+
+                activeSessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { sessions -> observe(sessions.orEmpty()) }
+                continuation.invokeOnCancellation { cleanup() }
+                try {
+                    manager.addOnActiveSessionsChangedListener(activeSessionsListener, component, handler)
+                    observe(manager.getActiveSessions(component))
+                } catch (_: SecurityException) {
+                    complete(MediaWaitResult.PermissionMissing)
                 } catch (error: RuntimeException) {
-                    accessFailure = "Le service d’accès aux sessions multimédias est indisponible."
-                    return@withTimeoutOrNull false
+                    complete(MediaWaitResult.ServiceUnavailable(error.message ?: "Service média indisponible."))
                 }
-                val targets = sessions.filter { controller -> controller.packageName == packageName }
-                targets.forEach { controller ->
-                    val state = controller.playbackState?.state
-                    Log.i(TAG, "MEDIA_SESSION_FOUND package=${controller.packageName}")
-                    Log.i(TAG, "MEDIA_PLAYBACK_STATE package=${controller.packageName} state=$state")
-                }
-                if (targets.any { controller -> controller.playbackState?.state == PlaybackState.STATE_PLAYING }) {
-                    return@withTimeoutOrNull true
-                }
-                delay(POLL_INTERVAL_MILLIS)
             }
         }
-        accessFailure?.let { return MediaWaitResult.Failed(it) }
-        return if (playing == true) MediaWaitResult.Playing else MediaWaitResult.TimedOut
-    }
-
-    private companion object {
-        const val TAG = "MediaPlaybackWaiter"
-        const val POLL_INTERVAL_MILLIS = 250L
+        return result ?: if (tracker.observedTargetSession) MediaWaitResult.TimedOut else MediaWaitResult.SessionAbsent
     }
 }

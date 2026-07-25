@@ -30,7 +30,7 @@ object RoutineOrchestrator {
         if (!store.begin(executionId, routine.id, now + MAX_ACTIVE_EXECUTION_MILLIS, now)) {
             return RoutineExecutionResult.AlreadyRunning
         }
-        return executeClaimed(appContext, routine, executionId, 0, null, null, continuationTtlMillis)
+        return executeClaimed(appContext, routine, executionId, 0, null, null, null, continuationTtlMillis)
     }
 
     suspend fun resume(
@@ -57,6 +57,7 @@ object RoutineOrchestrator {
                         continuation.nodeIndex,
                         continuation.nodeId,
                         continuation.continuationId,
+                        continuation.workflowCheckpoint,
                         continuationTtlMillis,
                     )
                 }
@@ -96,6 +97,7 @@ object RoutineOrchestrator {
         startIndex: Int,
         userInitiatedNodeId: com.branlly.pocket.domain.model.NodeId?,
         claimedContinuationId: String?,
+        workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint?,
         continuationTtlMillis: Long,
     ): RoutineExecutionResult {
         val store = PersistentRoutineExecutionStateStore(context)
@@ -105,7 +107,7 @@ object RoutineOrchestrator {
             store.finish(executionId)
             return RoutineExecutionResult.ValidationFailed(issues.map { it.message })
         }
-        val result = ShortcutExecutor(context, registry).execute(routine, executionId, startIndex, userInitiatedNodeId)
+        val result = ShortcutExecutor(context, registry).execute(routine, executionId, startIndex, userInitiatedNodeId, workflowCheckpoint)
         if (result is RoutineExecutionResult.WaitingUserAction) {
             val now = System.currentTimeMillis()
             val node = routine.nodes[result.nodeIndex]
@@ -117,6 +119,7 @@ object RoutineOrchestrator {
                 nodeIndex = result.nodeIndex,
                 actionKind = result.actionKind,
                 actionParameters = ActionJsonCodecRegistry.DEFAULT.encode(node.action).toString(),
+                workflowCheckpoint = result.workflowCheckpoint,
                 routineSnapshot = routine,
                 createdAtMillis = now,
                 expiresAtMillis = now + continuationTtlMillis,
@@ -152,6 +155,11 @@ internal fun isContinuationConsistent(continuation: RoutineContinuation): Boolea
     if (routine.id != continuation.routineId || continuation.nodeIndex !in routine.nodes.indices) return false
     val node = routine.nodes[continuation.nodeIndex]
     if (node.id != continuation.nodeId || node.action.kind != continuation.actionKind) return false
+    continuation.workflowCheckpoint?.let { checkpoint ->
+        if (checkpoint.actionId != continuation.nodeId || checkpoint.executionId != continuation.executionId ||
+            checkpoint.routineId != continuation.routineId || checkpoint.actionKind != continuation.actionKind
+        ) return false
+    }
     return runCatching {
         ActionJsonCodecRegistry.DEFAULT.decode(JSONObject(continuation.actionParameters)) == node.action
     }.getOrDefault(false)

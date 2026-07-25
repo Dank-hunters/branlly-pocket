@@ -123,7 +123,7 @@ class BoundedActionWorkflowRunner(
                     is ActionWorkflowStep.Cancelled -> return@withTimeoutOrNull ActionResult.Cancelled(step.reason)
                     is ActionWorkflowStep.UserActionRequired -> {
                         context.checkpointSink.persist(step.checkpoint)
-                        return@withTimeoutOrNull ActionResult.UserActionRequired(step.reason)
+                        return@withTimeoutOrNull ActionResult.UserActionRequired(step.reason, step.checkpoint)
                     }
                     is ActionWorkflowStep.PermissionRequired -> {
                         return@withTimeoutOrNull ActionResult.PermissionRequired(step.reason, step.settingsAction)

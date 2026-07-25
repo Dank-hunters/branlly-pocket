@@ -22,6 +22,18 @@ interface MediaAppAdapter {
     fun buildOpenIntent(request: MediaOpenRequest): Intent?
 }
 
+enum class ProviderVerificationStatus { TESTED, EXPERIMENTAL, UNVERIFIED }
+
+interface MediaProviderAdapter {
+    val id: String
+    val verificationStatus: ProviderVerificationStatus
+    val capabilities: Set<com.branlly.pocket.domain.media.MediaProviderCapability>
+
+    fun supports(target: AppTarget): Boolean
+    fun buildDirectContentIntent(request: MediaOpenRequest): Intent?
+    fun buildSearchIntent(request: MediaOpenRequest): Intent?
+}
+
 class YouTubeMusicAdapter(
     private val packages: Set<String> =
         setOf(
@@ -62,6 +74,64 @@ class GenericMediaAppAdapter : MediaAppAdapter {
     }.getOrDefault(false)
 }
 
+class GenericMediaProviderAdapter : MediaProviderAdapter {
+    override val id = "generic"
+    override val verificationStatus = ProviderVerificationStatus.TESTED
+    override val capabilities = setOf(
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_APP,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_SEARCH,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_DIRECT_CONTENT,
+    )
+    override fun supports(target: AppTarget) = true
+    override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? =
+        request.mediaUri?.takeIf(::safeMediaUri)?.let { Intent(Intent.ACTION_VIEW, Uri.parse(it)).setPackage(request.target.packageName) }
+    override fun buildSearchIntent(request: MediaOpenRequest): Intent? =
+        request.searchQuery?.takeIf(String::isNotBlank)?.let {
+            Intent(Intent.ACTION_SEARCH).setPackage(request.target.packageName).putExtra(SearchManager.QUERY, it)
+        }
+}
+
+class YouTubeMusicProviderAdapter(
+    private val packages: Set<String> = setOf("com.google.android.apps.youtube.music", "app.revanced.android.apps.youtube.music"),
+) : MediaProviderAdapter {
+    override val id = "youtube_music"
+    override val verificationStatus = ProviderVerificationStatus.UNVERIFIED
+    override val capabilities = setOf(
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_APP,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_SEARCH,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_DIRECT_CONTENT,
+    )
+    override fun supports(target: AppTarget) = target.packageName in packages
+    override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? =
+        request.mediaUri?.takeIf(::safeMediaUri)?.let { Intent(Intent.ACTION_VIEW, Uri.parse(it)).setPackage(request.target.packageName) }
+    override fun buildSearchIntent(request: MediaOpenRequest): Intent? = request.searchQuery?.takeIf(String::isNotBlank)?.let { query ->
+        Intent(Intent.ACTION_VIEW, Uri.parse("https://music.youtube.com/search?q=${Uri.encode(query)}")).setPackage(request.target.packageName)
+    }
+}
+
+class YouTubeProviderAdapter(
+    private val packages: Set<String> = setOf("com.google.android.youtube", "app.revanced.android.youtube"),
+) : MediaProviderAdapter {
+    override val id = "youtube"
+    override val verificationStatus = ProviderVerificationStatus.UNVERIFIED
+    override val capabilities = setOf(
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_APP,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_SEARCH,
+        com.branlly.pocket.domain.media.MediaProviderCapability.CAN_OPEN_DIRECT_CONTENT,
+    )
+    override fun supports(target: AppTarget) = target.packageName in packages
+    override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? =
+        request.mediaUri?.takeIf(::safeMediaUri)?.let { Intent(Intent.ACTION_VIEW, Uri.parse(it)).setPackage(request.target.packageName) }
+    override fun buildSearchIntent(request: MediaOpenRequest): Intent? = request.searchQuery?.takeIf(String::isNotBlank)?.let { query ->
+        Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/results?search_query=${Uri.encode(query)}")).setPackage(request.target.packageName)
+    }
+}
+
+private fun safeMediaUri(raw: String): Boolean = runCatching {
+    val uri = Uri.parse(raw)
+    (uri.scheme.equals("https", true) || uri.scheme.equals("spotify", true)) && uri.userInfo == null
+}.getOrDefault(false)
+
 data class NavigationTarget(
     val packageName: String,
 )
@@ -87,6 +157,11 @@ data class NavigationProviderOption(
 
 object BuiltInProviderCatalog {
     val mediaAdapters: List<MediaAppAdapter> = listOf(YouTubeMusicAdapter())
+    val mediaProviderAdapters: List<MediaProviderAdapter> = listOf(
+        YouTubeMusicProviderAdapter(),
+        YouTubeProviderAdapter(),
+        GenericMediaProviderAdapter(),
+    )
     val navigationProviders: List<NavigationProviderOption> =
         listOf(
             NavigationProviderOption(WazeAdapter.PACKAGE, "Waze", WazeAdapter(), setOf(TransportMode.DRIVING)),

@@ -2,7 +2,6 @@ package com.branlly.pocket.ui
 
 import android.content.Context
 import android.content.Intent
-import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
@@ -60,6 +59,7 @@ import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.catalog.visibleDescriptors
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
+import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutDefinition
@@ -507,6 +507,13 @@ private fun ActionChoiceScreen(viewModel: EditorViewModel) {
             onClick = viewModel::useBluetoothAction,
         )
         MethodCard(
+            badge = "MÉDIA",
+            title = "Jouer un média",
+            description = "Choisir une application et une recherche.",
+            prominent = false,
+            onClick = viewModel::usePlayMediaAction,
+        )
+        MethodCard(
             badge = "OUVRIR",
             title = "Une application",
             description = "Choisir une application installée sur le téléphone.",
@@ -603,7 +610,11 @@ private fun EditorScreen(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TextButton(onClick = viewModel::showStart) { Text("‹ Retour") }
                     Spacer(Modifier.weight(1f))
-                    Text("MODE SIMPLE", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
+                    Text(
+                        if (draft.mode == EditorMode.ADVANCED) "MODE AVANCÉ" else "MODE SIMPLE",
+                        style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
                 }
                 Text("Éditeur visuel", style = MaterialTheme.typography.headlineMedium, fontWeight = FontWeight.Bold)
                 Text(
@@ -668,7 +679,7 @@ private fun EditorScreen(
     }
     if (state.libraryVisible) {
         ModalBottomSheet(onDismissRequest = viewModel::hideLibrary) {
-            ActionLibrary(draft.trigger, viewModel::addAction)
+            ActionLibrary(draft.trigger, draft.mode, viewModel::addAction)
         }
     }
     if (state.presentationPickerVisible) {
@@ -791,10 +802,13 @@ private fun ActionCard(
 @Composable
 private fun ActionLibrary(
     trigger: Trigger,
+    mode: EditorMode,
     onSelected: (ActionDescriptor) -> Unit,
 ) {
     val context = LocalContext.current
-    val ordered = remember(context, trigger) { AndroidActionRegistry.create(context.applicationContext).visibleDescriptors(trigger) }
+    val ordered = remember(context, trigger, mode) {
+        AndroidActionRegistry.create(context.applicationContext).visibleDescriptors(trigger, includeAdvanced = mode == EditorMode.ADVANCED)
+    }
     LazyColumn(
         contentPadding =
             androidx.compose.foundation.layout
@@ -922,11 +936,7 @@ private fun testShortcut(
     context: Context,
     shortcut: ShortcutDefinition,
 ) {
-    Toast.makeText(
-        context,
-        "Enregistrez « ${shortcut.name} », puis lancez-la pour utiliser le même orchestrateur que tous les déclencheurs.",
-        Toast.LENGTH_LONG,
-    ).show()
+    com.branlly.pocket.platform.android.RoutineExecutionService.startTransient(context.applicationContext, shortcut)
 }
 
 private fun shortcutGlyph(iconKey: String): String =

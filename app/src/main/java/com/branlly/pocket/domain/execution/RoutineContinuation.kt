@@ -19,6 +19,7 @@ data class RoutineContinuation(
     val actionKind: ActionKind,
     /** Serialized independently so identity can be checked before rebuilding the handler call. */
     val actionParameters: String,
+    val workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint? = null,
     /** Immutable routine snapshot containing the current and all remaining nodes. */
     val routineSnapshot: ShortcutDefinition,
     val createdAtMillis: Long,

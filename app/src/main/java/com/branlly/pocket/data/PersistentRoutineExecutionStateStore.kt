@@ -89,6 +89,7 @@ class PersistentRoutineExecutionStateStore(context: Context) : RoutineExecutionS
                     .put("nodeIndex", continuation.nodeIndex)
                     .put("actionKind", continuation.actionKind.name)
                     .put("actionParameters", continuation.actionParameters)
+                    .put("workflowCheckpoint", continuation.workflowCheckpoint?.let(::encodeCheckpoint))
                     .put("routineSnapshot", shortcutCodec.encodeSnapshot(continuation.routineSnapshot))
                     .put("createdAt", continuation.createdAtMillis)
                     .put("expiresAt", continuation.expiresAtMillis),
@@ -110,6 +111,7 @@ class PersistentRoutineExecutionStateStore(context: Context) : RoutineExecutionS
                 nodeIndex = item.getInt("nodeIndex"),
                 actionKind = ActionKind.valueOf(item.getString("actionKind")),
                 actionParameters = item.getString("actionParameters"),
+                workflowCheckpoint = item.optJSONObject("workflowCheckpoint")?.let(::decodeCheckpoint),
                 routineSnapshot = snapshot,
                 createdAtMillis = item.getLong("createdAt"),
                 expiresAtMillis = item.getLong("expiresAt"),
@@ -123,6 +125,35 @@ class PersistentRoutineExecutionStateStore(context: Context) : RoutineExecutionS
             continuation = continuation,
         )
     }.getOrNull()
+
+    private fun encodeCheckpoint(checkpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint): JSONObject =
+        JSONObject()
+            .put("actionId", checkpoint.actionId.value)
+            .put("executionId", checkpoint.executionId)
+            .put("routineId", checkpoint.routineId.value)
+            .put("actionKind", checkpoint.actionKind.name)
+            .put("stateKey", checkpoint.stateKey)
+            .put("payload", JSONObject(checkpoint.payload))
+            .put("startedAt", checkpoint.startedAtMillis)
+            .put("expiresAt", checkpoint.expiresAtMillis)
+            .put("version", checkpoint.version)
+
+    private fun decodeCheckpoint(value: JSONObject): com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint {
+        val payload = value.optJSONObject("payload")
+        return com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint(
+            actionId = NodeId(value.getString("actionId")),
+            executionId = value.getString("executionId"),
+            routineId = ShortcutId(value.getString("routineId")),
+            actionKind = ActionKind.valueOf(value.getString("actionKind")),
+            stateKey = value.getString("stateKey"),
+            payload = buildMap {
+                payload?.keys()?.forEach { key -> put(key, payload.optString(key)) }
+            },
+            startedAtMillis = value.getLong("startedAt"),
+            expiresAtMillis = value.getLong("expiresAt"),
+            version = value.optInt("version", 1),
+        )
+    }
 
     private fun clear() {
         check(preferences.edit().remove(KEY_ACTIVE).commit())

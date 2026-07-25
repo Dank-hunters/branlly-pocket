@@ -17,6 +17,7 @@ import com.branlly.pocket.domain.model.SettingsPanel
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.SoundMode
 import com.branlly.pocket.domain.model.VolumeStream
+import com.branlly.pocket.platform.android.AndroidManualMediaGuidance
 import com.branlly.pocket.platform.android.AndroidMediaPlaybackWaiter
 
 class AndroidActionValidationContext(
@@ -80,6 +81,40 @@ object AndroidActionRegistry {
                     ),
                 ),
                 RegisteredAction(
+                    kind = ActionKind.PLAY_MEDIA,
+                    actionClass = ShortcutAction.PlayMedia::class.java,
+                    title = "Jouer un média",
+                    description = "Application et recherche",
+                    category = ActionCategory.OPEN,
+                    editorKey = ActionEditorKey.PLAY_MEDIA,
+                    createDefault = { ShortcutAction.PlayMedia("", "", searchQuery = "") },
+                    summary = { action ->
+                        "Jouer « ${action.searchQuery.ifBlank { "média" }} » avec ${action.targetAppLabel.ifBlank { "une application" }}"
+                    },
+                    handler = PlayMediaHandler(
+                        capabilityResolver = AndroidMediaCapabilityResolver(appContext, BuiltInProviderCatalog.mediaProviderAdapters),
+                        strategyFactory = { action ->
+                            val adapter = BuiltInProviderCatalog.mediaProviderAdapters.first { candidate ->
+                                candidate.supports(AppTarget(action.targetPackage, action.activityName))
+                            }
+                            val waiter = AndroidMediaPlaybackWaiter(appContext)
+                            listOf(
+                                DirectUriMediaStrategy(externalLauncher, adapter, waiter),
+                                MediaSessionPlaybackStrategy(AndroidMediaSessionCommandGateway(appContext), waiter),
+                                ProviderIntentMediaStrategy(externalLauncher, adapter, waiter),
+                                UnavailableMediaAutomationStrategy(),
+                                ManualFallbackMediaStrategy(
+                                    appContext,
+                                    externalLauncher,
+                                    adapter,
+                                    AndroidManualMediaGuidance(appContext),
+                                    waiter,
+                                ),
+                            )
+                        },
+                    ),
+                ),
+                RegisteredAction(
                     kind = ActionKind.OPEN_APPLICATION,
                     actionClass = ShortcutAction.OpenApplication::class.java,
                     title = "Ouvrir une application",
@@ -120,6 +155,7 @@ object AndroidActionRegistry {
                     editorKey = ActionEditorKey.SETTINGS,
                     createDefault = { ShortcutAction.OpenSettings(SettingsPanel.BLUETOOTH) },
                     handler = OpenSettingsHandler(appContext, externalLauncher),
+                    advancedOnly = true,
                 ),
                 RegisteredAction(
                     kind = ActionKind.SET_VOLUME,
@@ -164,6 +200,7 @@ object AndroidActionRegistry {
                         "Attendre lecture · ${action.applicationLabel ?: packageName} · $packageName · ${action.timeoutMillis / 1_000} s"
                     },
                     handler = WaitForMediaPlaybackHandler(AndroidMediaPlaybackWaiter(appContext)),
+                    advancedOnly = true,
                 ),
                 RegisteredAction(
                     kind = ActionKind.WAIT,

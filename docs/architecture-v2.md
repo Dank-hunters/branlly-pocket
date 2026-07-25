@@ -97,9 +97,40 @@ Preuves : `/tmp/branlly-physical-tests/v2-bluetooth/`.
 
 Limite connue avant les phases suivantes : le checkpoint générique de workflow est défini mais pas encore intégré à une reprise automatique après destruction complète du processus pendant une demande système. Le résultat Activity est conservé localement et consommable lors d’une nouvelle invocation ; aucun support de redémarrage complet du téléphone n’est annoncé.
 
+### Phase 3 — PLAY_MEDIA
+
+Modèle utilisateur unique : application cible, recherche, URI facultative, artiste, type préféré, politique de sélection, timeout, fallback manuel, automatisation avancée et stratégie d’erreur. Le mode simple ne montre que l’application et la recherche ; les autres champs restent dans une section avancée repliée.
+
+```text
+RESOLVING_TARGET
+→ RESOLVING_CAPABILITIES
+→ TRYING_DIRECT_URI (au plus une fois)
+→ TRYING_MEDIA_SESSION (au plus une fois)
+→ TRYING_PROVIDER_INTENT (au plus une fois)
+→ WAITING_FOR_USER si nécessaire
+→ PLAYBACK_CONFIRMED
+→ COMPLETED
+```
+
+`MediaCapabilityResolver` calcule un snapshot sans effet de bord : installation, Activity, adaptateur, NotificationListener, sessions exactes, actions de transport et fallbacks autorisés. Le snapshot est calculé une fois puis conservé pendant l’action.
+
+`MediaPlaybackStrategy` reste une interface légère. Les stratégies sont séquentielles et retournent un résultat interne explicite : démarrage confirmé, attente de lecture, non supporté, échec récupérable, échec terminal ou interaction requise. Une ouverture ou une commande envoyée ne vaut jamais succès ; seul `STATE_PLAYING` du package exact permet `Completed`.
+
+Phase 3A implémente URI directe, MediaSession, Intent fournisseur générique et fallback manuel. L’automatisation Accessibility reste absente. Phase 3B documentera les capacités réelles des adaptateurs spécifiques et validera au moins deux lecteurs.
+
+Confirmation média :
+
+- `PLAYBACK_CONFIRMED` : session exacte en lecture ;
+- `CONTENT_CONFIRMED` : métadonnées suffisantes ;
+- `PLAYBACK_CONFIRMED_CONTENT_UNVERIFIED` : lecture réelle, contenu exact non prouvé.
+
+Le mode simple accepte la confirmation de lecture avec contenu non vérifiable, sans prétendre avoir confirmé le titre. Une future politique exacte pourra l’interdire.
+
+Bornes prévues : 12 transitions, une tentative par stratégie, timeout global borné entre 15 secondes et 5 minutes. Le waiter MediaSession devient événementiel via callbacks de sessions actives et `MediaController.Callback`, sans observation permanente.
+
 ### Phases suivantes
 
-- `PLAY_MEDIA` encapsulera résolution, stratégie, ouverture, demande de lecture et confirmation `STATE_PLAYING` ;
+- `PLAY_MEDIA` recevra ultérieurement l’automatisation déterministe Accessibility dans une sous-phase séparée ;
 - `START_NAVIGATION` encapsulera fournisseur, Intent, BAL et continuation ;
 - les actions V1 restent décodables et seront classées en mode avancé ;
 - aucune conversion automatique d’ancienne routine sans correspondance certaine.

@@ -8,6 +8,7 @@ import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.execution.RoutineValidator
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ConnectionEvent
+import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAccentColor
@@ -45,7 +46,7 @@ class EditorViewModel(
         }
     }
 
-    fun startFree() = openEditor(Trigger.ManualButton)
+    fun startFree() = openEditor(Trigger.ManualButton, mode = EditorMode.ADVANCED)
 
     fun startGuided(trigger: Trigger) {
         _state.update { state ->
@@ -65,6 +66,23 @@ class EditorViewModel(
                 draft = ShortcutDefinition(
                     name = "Bluetooth",
                     category = ShortcutCategory.OTHER,
+                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
+                    nodes = listOf(node),
+                ),
+                selectedNodeId = node.id,
+                savedShortcuts = state.savedShortcuts,
+            )
+        }
+    }
+
+    fun usePlayMediaAction() {
+        val node = ActionNode(action = ShortcutAction.PlayMedia("", "", searchQuery = ""))
+        _state.update { state ->
+            EditorUiState(
+                screen = Screen.EDITOR,
+                draft = ShortcutDefinition(
+                    name = "Jouer un média",
+                    category = ShortcutCategory.WELLBEING,
                     trigger = state.draft?.trigger ?: Trigger.ManualButton,
                     nodes = listOf(node),
                 ),
@@ -414,11 +432,12 @@ class EditorViewModel(
     private fun openEditor(
         trigger: Trigger,
         configureTrigger: Boolean = false,
+        mode: EditorMode = EditorMode.SIMPLE,
     ) {
         _state.value =
             EditorUiState(
                 screen = Screen.EDITOR,
-                draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList()),
+                draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList(), mode = mode),
                 triggerConfigurationVisible = configureTrigger,
             )
     }

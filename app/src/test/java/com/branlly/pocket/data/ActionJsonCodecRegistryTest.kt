@@ -14,6 +14,24 @@ class ActionJsonCodecRegistryTest {
     }
 
     @Test
+    fun `PLAY_MEDIA codec preserves user and advanced options`() {
+        val action = ShortcutAction.PlayMedia(
+            targetAppLabel = "Player",
+            targetPackage = "example.player",
+            activityName = "example.player.MainActivity",
+            searchQuery = "Fichu Django",
+            mediaUri = "https://example.test/media",
+            artist = "Django",
+            preferredContentType = com.branlly.pocket.domain.model.PreferredMediaContentType.SONG,
+            selectionPolicy = com.branlly.pocket.domain.model.MediaSelectionPolicy.EXACT_MATCH,
+            timeoutMs = 60_000,
+            allowManualFallback = false,
+            errorStrategy = com.branlly.pocket.domain.model.MediaErrorStrategy.STOP_ON_FIRST_FAILURE,
+        )
+        assertEquals(action, ActionJsonCodecRegistry.DEFAULT.decode(ActionJsonCodecRegistry.DEFAULT.encode(action)))
+    }
+
+    @Test
     fun `open application codec preserves exact technical identity`() {
         val action = ShortcutAction.OpenApplication(
             packageName = InputValue.Fixed("example.player"),

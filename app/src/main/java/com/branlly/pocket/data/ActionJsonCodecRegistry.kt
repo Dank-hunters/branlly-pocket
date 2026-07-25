@@ -2,6 +2,9 @@ package com.branlly.pocket.data
 
 import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.InputValue
+import com.branlly.pocket.domain.model.MediaErrorStrategy
+import com.branlly.pocket.domain.model.MediaSelectionPolicy
+import com.branlly.pocket.domain.model.PreferredMediaContentType
 import com.branlly.pocket.domain.model.SettingsPanel
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutId
@@ -65,6 +68,36 @@ private fun defaultCodecs(): List<ActionJsonCodec<out ShortcutAction>> =
             JSONObject().put("timeout", action.timeoutMillis)
         }) { value ->
             ShortcutAction.EnableBluetooth(value.optLong("timeout", 45_000L).coerceIn(5_000L, 120_000L))
+        },
+        codec<ShortcutAction.PlayMedia>(ActionKind.PLAY_MEDIA, { action ->
+            JSONObject()
+                .put("targetAppLabel", action.targetAppLabel)
+                .put("targetPackage", action.targetPackage)
+                .putOptional("activityName", action.activityName)
+                .put("searchQuery", action.searchQuery)
+                .putOptional("mediaUri", action.mediaUri)
+                .putOptional("artist", action.artist)
+                .put("preferredContentType", action.preferredContentType.name)
+                .put("selectionPolicy", action.selectionPolicy.name)
+                .put("timeoutMs", action.timeoutMs)
+                .put("allowManualFallback", action.allowManualFallback)
+                .put("allowAdvancedAutomation", action.allowAdvancedAutomation)
+                .put("errorStrategy", action.errorStrategy.name)
+        }) { value ->
+            ShortcutAction.PlayMedia(
+                targetAppLabel = value.optString("targetAppLabel").take(MAX_TEXT_LENGTH),
+                targetPackage = value.optString("targetPackage").take(MAX_TEXT_LENGTH),
+                activityName = value.optionalString("activityName"),
+                searchQuery = value.optString("searchQuery").take(MAX_TEXT_LENGTH),
+                mediaUri = value.optionalString("mediaUri"),
+                artist = value.optionalString("artist"),
+                preferredContentType = enumValue(value.optString("preferredContentType"), PreferredMediaContentType.AUTO),
+                selectionPolicy = enumValue(value.optString("selectionPolicy"), MediaSelectionPolicy.BEST_PLAYABLE_MATCH),
+                timeoutMs = value.optLong("timeoutMs", 120_000L).coerceIn(15_000L, 300_000L),
+                allowManualFallback = value.optBoolean("allowManualFallback", true),
+                allowAdvancedAutomation = value.optBoolean("allowAdvancedAutomation", false),
+                errorStrategy = enumValue(value.optString("errorStrategy"), MediaErrorStrategy.TRY_NEXT_STRATEGY),
+            )
         },
         codec<ShortcutAction.OpenApplication>(ActionKind.OPEN_APPLICATION, { action ->
             JSONObject()

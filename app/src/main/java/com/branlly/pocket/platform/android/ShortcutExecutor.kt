@@ -31,6 +31,7 @@ class ShortcutExecutor(
         executionId: String = UUID.randomUUID().toString(),
         startIndex: Int = 0,
         userInitiatedNodeId: NodeId? = null,
+        workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint? = null,
     ): RoutineExecutionResult {
         logger.log(
             "ROUTINE_START",
@@ -52,7 +53,7 @@ class ShortcutExecutor(
             val isResumedNode = index == startIndex && userInitiatedNodeId == node.id
             if (node.delayBeforeMillis > 0 && !isResumedNode) delay(node.delayBeforeMillis)
             val result = try {
-                executeWithStrategy(shortcut, node, executionId, isResumedNode)
+                executeWithStrategy(shortcut, node, executionId, isResumedNode, workflowCheckpoint.takeIf { isResumedNode })
             } catch (_: CancellationException) {
                 ActionResult.Cancelled()
             } catch (error: Throwable) {
@@ -64,7 +65,13 @@ class ShortcutExecutor(
             )
             if (result is ActionResult.UserActionRequired) {
                 logger.log("ROUTINE_WAITING_USER_ACTION", fields(executionId, shortcut, node, index) + mapOf("result" to result))
-                return RoutineExecutionResult.WaitingUserAction(node.id, index, node.action.kind, result.reason)
+                return RoutineExecutionResult.WaitingUserAction(
+                    node.id,
+                    index,
+                    node.action.kind,
+                    result.reason,
+                    workflowCheckpoint = result.workflowCheckpoint,
+                )
             }
             if (result !is ActionResult.Completed) {
                 val canContinue = node.errorStrategy is ErrorStrategy.Continue &&
@@ -84,9 +91,10 @@ class ShortcutExecutor(
         node: ActionNode,
         executionId: String,
         userInitiated: Boolean,
+        workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint?,
     ): ActionResult {
         suspend fun attempt(): ActionResult {
-            val context = ActionExecutionContext(executionId, shortcut.id, node.id, logger, userInitiated)
+            val context = ActionExecutionContext(executionId, shortcut.id, node.id, logger, userInitiated, workflowCheckpoint)
             return if (node.timeoutMillis == null) {
                 registry.execute(node.action, context)
             } else {
@@ -138,6 +146,7 @@ sealed interface RoutineExecutionResult {
         val actionKind: ActionKind,
         val reason: String,
         val continuationId: String? = null,
+        val workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint? = null,
     ) : RoutineExecutionResult
 
     data class ValidationFailed(
