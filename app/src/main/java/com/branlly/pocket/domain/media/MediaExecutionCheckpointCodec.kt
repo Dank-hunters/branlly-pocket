@@ -19,7 +19,9 @@ object MediaExecutionCheckpointCodec {
             .put("state", checkpoint.state.name)
             .put("stateVersion", checkpoint.stateVersion)
             .put("operationId", checkpoint.operationId)
+            .put("continuationCreated", checkpoint.continuationCreated)
             .put("continuationConsumed", checkpoint.continuationConsumed)
+            .put("continuationKey", checkpoint.continuationKey)
             .put("manualAssistanceShown", checkpoint.manualGuidanceShown)
             .put("baselinePlaying", JSONArray(checkpoint.baseline.playingSessionIds))
             .put("baselineKnown", JSONArray(checkpoint.baseline.knownSessionIds))
@@ -58,15 +60,20 @@ object MediaExecutionCheckpointCodec {
             ).put(
                 "plan",
                 JSONArray().apply {
-                    checkpoint.plan.operations.forEach { operation ->
+                    checkpoint.plan.operations.forEachIndexed { position, operation ->
                         put(
                             JSONObject()
                                 .put(
                                     "id",
                                     operation.id,
-                                ).put("type", operation.type.name)
+                                ).put("position", position)
+                                .put("type", operation.type.name)
                                 .put("automatic", operation.automatic)
-                                .put("status", operation.status.name),
+                                .put("available", operation.available)
+                                .put("status", operation.status.name)
+                                .put("effectApplied", operation.effectApplied)
+                                .put("executionCount", operation.executionCount)
+                                .put("reason", operation.reason),
                         )
                     }
                 },
@@ -88,6 +95,14 @@ object MediaExecutionCheckpointCodec {
                 return null
             }
 
+            fun optionalString(
+                source: JSONObject,
+                key: String,
+            ): String? {
+                if (!source.has(key) || source.isNull(key)) return null
+                return source.getString(key).also { require(it.isNotBlank()) }
+            }
+
             fun strings(key: String) =
                 buildSet {
                     val array = value.optJSONArray(key) ?: return@buildSet
@@ -96,14 +111,19 @@ object MediaExecutionCheckpointCodec {
             val operations =
                 buildList {
                     val array = value.getJSONArray("plan")
-                    repeat(array.length()) {
-                        val item = array.getJSONObject(it)
+                    repeat(array.length()) { position ->
+                        val item = array.getJSONObject(position)
+                        require(item.getInt("position") == position)
                         add(
                             MediaOperation(
-                                item.getString("id"),
-                                MediaOperationType.valueOf(item.getString("type")),
-                                item.getBoolean("automatic"),
-                                MediaOperationStatus.valueOf(item.getString("status")),
+                                id = item.getString("id"),
+                                type = MediaOperationType.valueOf(item.getString("type")),
+                                automatic = item.getBoolean("automatic"),
+                                status = MediaOperationStatus.valueOf(item.getString("status")),
+                                available = item.optBoolean("available", true),
+                                effectApplied = item.optBoolean("effectApplied", false),
+                                executionCount = item.optInt("executionCount", 0),
+                                reason = optionalString(item, "reason"),
                             ),
                         )
                     }
@@ -127,28 +147,14 @@ object MediaExecutionCheckpointCodec {
                         ),
                         strings("baselineKnown"),
                         baseline.getBoolean("present"),
-                        baseline.optString("package").ifBlank {
-                            null
-                        },
+                        optionalString(baseline, "package"),
                         MediaBaselinePlaybackState.valueOf(baseline.getString("state")),
-                        baseline.optString("title").ifBlank {
-                            null
-                        },
-                        baseline.optString("artist").ifBlank {
-                            null
-                        },
-                        baseline.optString("album").ifBlank {
-                            null
-                        },
-                        baseline.optString("uri").ifBlank {
-                            null
-                        },
-                        baseline.optString("sessionId").ifBlank {
-                            null
-                        },
-                        baseline.optLong("position").takeIf {
-                            baseline.has("position")
-                        },
+                        optionalString(baseline, "title"),
+                        optionalString(baseline, "artist"),
+                        optionalString(baseline, "album"),
+                        optionalString(baseline, "uri"),
+                        optionalString(baseline, "sessionId"),
+                        if (baseline.has("position") && !baseline.isNull("position")) baseline.getLong("position") else null,
                         baseline.getLong("capturedAt"),
                         MediaBaselineMetadataState.valueOf(baseline.getString("metadata")),
                     )
@@ -166,10 +172,42 @@ object MediaExecutionCheckpointCodec {
                         )
                 ) ||
                 (!baseline.sessionPresent && baseline.playbackState != MediaBaselinePlaybackState.NONE) ||
+                (!baseline.sessionPresent && baseline.metadataState != MediaBaselineMetadataState.ABSENT) ||
                 (
                     baseline.sessionPresent && baseline.playbackState == MediaBaselinePlaybackState.PLAYING &&
                         baseline.sessionId.isNullOrBlank()
                 )
+            ) {
+                return null
+            }
+            val stateVersion = value.getInt("stateVersion")
+            if (stateVersion < 0) return null
+            val operationId = optionalString(value, "operationId")
+            val continuationCreated = value.optBoolean("continuationCreated", false)
+            val continuationConsumed = value.getBoolean("continuationConsumed")
+            val continuationKey = optionalString(value, "continuationKey")
+            val active = operations.filter { it.status in ACTIVE_OPERATION_STATUSES }
+            if (operations.map(MediaOperation::id).any(String::isBlank) ||
+                operations.map(MediaOperation::id).distinct().size != operations.size ||
+                operations.any {
+                    it.executionCount < 0 || (it.effectApplied && it.executionCount == 0) ||
+                        (!it.available && it.status != MediaOperationStatus.SKIPPED) ||
+                        (
+                            it.status in
+                                setOf(
+                                    MediaOperationStatus.EFFECT_APPLIED,
+                                    MediaOperationStatus.AWAITING_OUTCOME,
+                                ) && !it.effectApplied
+                        )
+                } || active.size > 1 ||
+                (operationId != null && operations.none { it.id == operationId }) ||
+                (active.isNotEmpty() && operationId != active.single().id) ||
+                (continuationConsumed && !continuationCreated) ||
+                (continuationCreated && continuationKey == null) ||
+                (!continuationCreated && continuationKey != null) ||
+                (state == MediaExecutionState.AWAIT_USER_LAUNCH && operationId == null) ||
+                (state == MediaExecutionState.AWAIT_MANUAL_PLAY && !value.getBoolean("manualAssistanceShown")) ||
+                (state == MediaExecutionState.AWAIT_MANUAL_PLAY && operations.none { it.type == MediaOperationType.MANUAL_ASSISTANCE })
             ) {
                 return null
             }
@@ -181,15 +219,21 @@ object MediaExecutionCheckpointCodec {
                 automaticDeadlineMillis = automaticDeadline,
                 globalDeadlineMillis = globalDeadline,
                 state = state,
-                stateVersion = value.getInt("stateVersion"),
-                operationId =
-                    value.optString("operationId").ifBlank {
-                        null
-                    },
-                continuationConsumed = value.getBoolean("continuationConsumed"),
+                stateVersion = stateVersion,
+                operationId = operationId,
+                continuationCreated = continuationCreated,
+                continuationConsumed = continuationConsumed,
+                continuationKey = continuationKey,
                 manualGuidanceShown = value.getBoolean("manualAssistanceShown"),
                 baseline = baseline,
                 plan = MediaExecutionPlan(operations),
             )
         }.getOrNull()
+
+    private val ACTIVE_OPERATION_STATUSES =
+        setOf(
+            MediaOperationStatus.RUNNING,
+            MediaOperationStatus.EFFECT_APPLIED,
+            MediaOperationStatus.AWAITING_OUTCOME,
+        )
 }

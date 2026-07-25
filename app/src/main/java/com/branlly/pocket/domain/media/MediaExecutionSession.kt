@@ -26,7 +26,15 @@ enum class MediaConfirmationLevel {
     PREEXISTING_PLAYBACK,
 }
 
-enum class MediaOperationStatus { NOT_STARTED, RUNNING, COMPLETED, FAILED, SKIPPED }
+enum class MediaOperationStatus {
+    NOT_STARTED,
+    RUNNING,
+    EFFECT_APPLIED,
+    AWAITING_OUTCOME,
+    COMPLETED,
+    FAILED,
+    SKIPPED,
+}
 
 enum class MediaOperationType { DIRECT_URI, MEDIA_SESSION, PROVIDER_SEARCH, PROVIDER_AUTOMATION, MANUAL_ASSISTANCE }
 
@@ -55,6 +63,10 @@ data class MediaOperation(
     val type: MediaOperationType,
     val automatic: Boolean,
     val status: MediaOperationStatus = MediaOperationStatus.NOT_STARTED,
+    val available: Boolean = true,
+    val effectApplied: Boolean = false,
+    val executionCount: Int = 0,
+    val reason: String? = null,
 )
 
 data class MediaExecutionPlan(
@@ -71,7 +83,9 @@ data class MediaExecutionCheckpoint(
     val state: MediaExecutionState,
     val stateVersion: Int,
     val operationId: String?,
+    val continuationCreated: Boolean = false,
     val continuationConsumed: Boolean,
+    val continuationKey: String? = null,
     val manualGuidanceShown: Boolean,
     val baseline: MediaSessionBaseline,
     val plan: MediaExecutionPlan,
@@ -117,7 +131,9 @@ class MediaExecutionSession(
     val plan: MediaExecutionPlan,
     initialState: MediaExecutionState = MediaExecutionState.PRECHECK,
     initialStateVersion: Int = 0,
+    initialContinuationCreated: Boolean = false,
     initialContinuationConsumed: Boolean = false,
+    initialContinuationKey: String? = null,
     initialManualGuidanceShown: Boolean = false,
     val automaticDeadlineMillis: Long,
     val globalDeadlineMillis: Long,
@@ -127,14 +143,24 @@ class MediaExecutionSession(
         val state: MediaExecutionState,
         val version: Int,
         val operations: List<MediaOperation>,
+        val continuationCreated: Boolean,
         val continuationConsumed: Boolean,
+        val continuationKey: String?,
         val manualGuidanceShown: Boolean,
         val terminal: MediaExecutionResult? = null,
     )
 
     private val state =
         AtomicReference(
-            MutableState(initialState, initialStateVersion, plan.operations, initialContinuationConsumed, initialManualGuidanceShown),
+            MutableState(
+                initialState,
+                initialStateVersion,
+                plan.operations,
+                initialContinuationCreated,
+                initialContinuationConsumed,
+                initialContinuationKey,
+                initialManualGuidanceShown,
+            ),
         )
 
     fun state(): MediaExecutionState = state.get().state
@@ -158,7 +184,16 @@ class MediaExecutionSession(
             current.copy(
                 state = MediaExecutionState.EXECUTE_OPERATION,
                 version = current.version + 1,
-                operations = current.operations.map { if (it.id == operation.id) it.copy(status = MediaOperationStatus.RUNNING) else it },
+                operations =
+                    current.operations.map {
+                        if (it.id ==
+                            operation.id
+                        ) {
+                            it.copy(status = MediaOperationStatus.RUNNING, executionCount = it.executionCount + 1)
+                        } else {
+                            it
+                        }
+                    },
             )
         }
 
@@ -175,7 +210,10 @@ class MediaExecutionSession(
                         if (it.id == id &&
                             it.status == MediaOperationStatus.RUNNING
                         ) {
-                            it.copy(status = status)
+                            it.copy(
+                                status = status,
+                                effectApplied = it.effectApplied || status in EFFECT_APPLIED_STATUSES,
+                            )
                         } else {
                             it
                         }
@@ -212,8 +250,10 @@ class MediaExecutionSession(
             globalDeadlineMillis = globalDeadlineMillis,
             state = current.state,
             stateVersion = current.version,
-            operationId = current.operations.firstOrNull { it.status == MediaOperationStatus.RUNNING }?.id,
+            operationId = current.operations.firstOrNull { it.status in ACTIVE_OPERATION_STATUSES }?.id,
+            continuationCreated = current.continuationCreated,
             continuationConsumed = current.continuationConsumed,
+            continuationKey = current.continuationKey,
             manualGuidanceShown = current.manualGuidanceShown,
             baseline = baseline,
             plan = MediaExecutionPlan(current.operations),
@@ -245,4 +285,19 @@ class MediaExecutionSession(
             is MediaExecutionResult.TimedOut -> MediaExecutionState.TIMED_OUT
             is MediaExecutionResult.UserLaunchRequired -> MediaExecutionState.AWAIT_USER_LAUNCH
         }
+
+    private companion object {
+        val EFFECT_APPLIED_STATUSES =
+            setOf(
+                MediaOperationStatus.EFFECT_APPLIED,
+                MediaOperationStatus.AWAITING_OUTCOME,
+                MediaOperationStatus.COMPLETED,
+            )
+        val ACTIVE_OPERATION_STATUSES =
+            setOf(
+                MediaOperationStatus.RUNNING,
+                MediaOperationStatus.EFFECT_APPLIED,
+                MediaOperationStatus.AWAITING_OUTCOME,
+            )
+    }
 }
