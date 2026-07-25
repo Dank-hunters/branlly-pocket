@@ -24,6 +24,38 @@ object MediaExecutionCheckpointCodec {
             .put("baselinePlaying", JSONArray(checkpoint.baseline.playingSessionIds))
             .put("baselineKnown", JSONArray(checkpoint.baseline.knownSessionIds))
             .put(
+                "baseline",
+                JSONObject()
+                    .put(
+                        "present",
+                        checkpoint.baseline.sessionPresent,
+                    ).put(
+                        "package",
+                        checkpoint.baseline.packageName,
+                    ).put(
+                        "state",
+                        checkpoint.baseline.playbackState.name,
+                    ).put(
+                        "title",
+                        checkpoint.baseline.title,
+                    ).put(
+                        "artist",
+                        checkpoint.baseline.artist,
+                    ).put(
+                        "album",
+                        checkpoint.baseline.album,
+                    ).put(
+                        "uri",
+                        checkpoint.baseline.mediaUri,
+                    ).put(
+                        "sessionId",
+                        checkpoint.baseline.sessionId,
+                    ).put(
+                        "position",
+                        checkpoint.baseline.positionMillis,
+                    ).put("capturedAt", checkpoint.baseline.capturedAtMillis)
+                    .put("metadata", checkpoint.baseline.metadataState.name),
+            ).put(
                 "plan",
                 JSONArray().apply {
                     checkpoint.plan.operations.forEach { operation ->
@@ -87,6 +119,60 @@ object MediaExecutionCheckpointCodec {
             val automaticDeadline = value.getLong("automaticDeadlineMillis")
             val globalDeadline = value.getLong("globalDeadlineMillis")
             if (globalDeadline < startedAt || automaticDeadline > globalDeadline) return null
+            val baseline =
+                value.optJSONObject("baseline")?.let { baseline ->
+                    MediaSessionBaseline(
+                        strings(
+                            "baselinePlaying",
+                        ),
+                        strings("baselineKnown"),
+                        baseline.getBoolean("present"),
+                        baseline.optString("package").ifBlank {
+                            null
+                        },
+                        MediaBaselinePlaybackState.valueOf(baseline.getString("state")),
+                        baseline.optString("title").ifBlank {
+                            null
+                        },
+                        baseline.optString("artist").ifBlank {
+                            null
+                        },
+                        baseline.optString("album").ifBlank {
+                            null
+                        },
+                        baseline.optString("uri").ifBlank {
+                            null
+                        },
+                        baseline.optString("sessionId").ifBlank {
+                            null
+                        },
+                        baseline.optLong("position").takeIf {
+                            baseline.has("position")
+                        },
+                        baseline.getLong("capturedAt"),
+                        MediaBaselineMetadataState.valueOf(baseline.getString("metadata")),
+                    )
+                } ?: MediaSessionBaseline(strings("baselinePlaying"), strings("baselineKnown"))
+            if (baseline.capturedAtMillis < 0 || baseline.positionMillis?.let { it < 0 } == true ||
+                (baseline.sessionPresent && baseline.packageName.isNullOrBlank()) ||
+                (
+                    !baseline.sessionPresent &&
+                        (
+                            baseline.packageName != null || baseline.sessionId != null || baseline.positionMillis != null ||
+                                baseline.title != null ||
+                                baseline.artist != null ||
+                                baseline.album != null ||
+                                baseline.mediaUri != null
+                        )
+                ) ||
+                (!baseline.sessionPresent && baseline.playbackState != MediaBaselinePlaybackState.NONE) ||
+                (
+                    baseline.sessionPresent && baseline.playbackState == MediaBaselinePlaybackState.PLAYING &&
+                        baseline.sessionId.isNullOrBlank()
+                )
+            ) {
+                return null
+            }
             MediaExecutionCheckpoint(
                 executionId = executionId,
                 routineId = routineId,
@@ -102,7 +188,7 @@ object MediaExecutionCheckpointCodec {
                     },
                 continuationConsumed = value.getBoolean("continuationConsumed"),
                 manualGuidanceShown = value.getBoolean("manualAssistanceShown"),
-                baseline = MediaSessionBaseline(strings("baselinePlaying"), strings("baselineKnown")),
+                baseline = baseline,
                 plan = MediaExecutionPlan(operations),
             )
         }.getOrNull()

@@ -30,9 +30,24 @@ enum class MediaOperationStatus { NOT_STARTED, RUNNING, COMPLETED, FAILED, SKIPP
 
 enum class MediaOperationType { DIRECT_URI, MEDIA_SESSION, PROVIDER_SEARCH, PROVIDER_AUTOMATION, MANUAL_ASSISTANCE }
 
+enum class MediaBaselinePlaybackState { NONE, STOPPED, PAUSED, PLAYING, UNKNOWN }
+
+enum class MediaBaselineMetadataState { ABSENT, PARTIAL, COMPLETE }
+
 data class MediaSessionBaseline(
     val playingSessionIds: Set<String>,
     val knownSessionIds: Set<String>,
+    val sessionPresent: Boolean = knownSessionIds.isNotEmpty(),
+    val packageName: String? = null,
+    val playbackState: MediaBaselinePlaybackState = if (playingSessionIds.isNotEmpty()) MediaBaselinePlaybackState.PLAYING else MediaBaselinePlaybackState.NONE,
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val mediaUri: String? = null,
+    val sessionId: String? = null,
+    val positionMillis: Long? = null,
+    val capturedAtMillis: Long = 0,
+    val metadataState: MediaBaselineMetadataState = MediaBaselineMetadataState.ABSENT,
 )
 
 data class MediaOperation(
