@@ -13,11 +13,13 @@ import com.branlly.pocket.domain.media.MediaOperationType
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.model.ShortcutAction
 import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
 /** Coordinates one frozen plan, one observer and one terminal result for PLAY_MEDIA. */
+@OptIn(ExperimentalCoroutinesApi::class)
 class PlayMediaCoordinator(
     private val launcher: ExternalActivityGateway,
     private val adapter: MediaProviderAdapter,
@@ -65,7 +67,7 @@ class PlayMediaCoordinator(
             try {
                 session.move(com.branlly.pocket.domain.media.MediaExecutionState.AWAIT_OUTCOME)
                 while (nowMillis() < deadline) {
-                    outcome.getCompleted()?.let { return@coroutineScope finish(session, it) }
+                    outcome.getCompletedOrNull()?.let { return@coroutineScope finish(session, it) }
                     val operation =
                         session.nextOperation()
                             ?: return@coroutineScope finish(session, MediaExecutionResult.TimedOut("Aucune opération média restante."))
@@ -87,7 +89,7 @@ class PlayMediaCoordinator(
                             session.finishOperation(operation.id, MediaOperationStatus.COMPLETED)
                             if (operation.type == MediaOperationType.MANUAL_ASSISTANCE) {
                                 if (session.markManualGuidanceShown()) guidance.show(action, context)
-                                return@coroutineScope finish(session, awaitOutcome(outcome, (deadline - nowMillis()).coerceAtLeast(1)))
+                                return@coroutineScope finish(session, outcome.await())
                             }
                             val remainingAutomatic = (session.automaticDeadlineMillis - nowMillis()).coerceAtLeast(0)
                             val observed = withTimeoutOrNull(remainingAutomatic) { outcome.await() }
@@ -201,11 +203,6 @@ class PlayMediaCoordinator(
 
 private fun ShortcutAction.PlayMedia.request() = MediaOpenRequest(AppTarget(targetPackage, activityName), searchQuery, mediaUri)
 
-private fun <T> kotlinx.coroutines.Deferred<T>.getCompleted(): T? =
-    if (isCompleted &&
-        !isCancelled
-    ) {
-        runCatching { getCompleted() }.getOrNull()
-    } else {
-        null
-    }
+@OptIn(ExperimentalCoroutinesApi::class)
+private fun <T> kotlinx.coroutines.Deferred<T>.getCompletedOrNull(): T? =
+    if (isCompleted && !isCancelled) runCatching { getCompleted() }.getOrNull() else null

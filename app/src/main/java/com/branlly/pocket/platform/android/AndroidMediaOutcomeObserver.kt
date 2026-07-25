@@ -112,7 +112,7 @@ class AndroidMediaOutcomeObserver(
 
                 sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { observe(it.orEmpty()) }
                 cleanup = ::dispose
-                continuation.invokeOnCancellation(::dispose)
+                continuation.invokeOnCancellation { dispose() }
                 try {
                     manager.addOnActiveSessionsChangedListener(sessionsListener, component, handler)
                     observe(manager.getActiveSessions(component))
