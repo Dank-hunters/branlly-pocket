@@ -20,6 +20,8 @@ data class RoutineContinuation(
     /** Serialized independently so identity can be checked before rebuilding the handler call. */
     val actionParameters: String,
     val workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint? = null,
+    /** Stable business key preventing duplicate continuations for the same action state. */
+    val continuationKey: String? = null,
     /** Immutable routine snapshot containing the current and all remaining nodes. */
     val routineSnapshot: ShortcutDefinition,
     val createdAtMillis: Long,
@@ -42,25 +44,42 @@ data class ContinuationIdentity(
 )
 
 sealed interface ContinuationClaim {
-    data class Claimed(val continuation: RoutineContinuation) : ContinuationClaim
+    data class Claimed(
+        val continuation: RoutineContinuation,
+    ) : ContinuationClaim
+
     data object Missing : ContinuationClaim
+
     data object Expired : ContinuationClaim
+
     data object AlreadyConsumed : ContinuationClaim
+
     data object Mismatch : ContinuationClaim
 }
 
 interface RoutineExecutionStateStore {
     /** Atomically starts an execution if no non-expired execution is active. */
-    fun begin(executionId: String, routineId: ShortcutId, expiresAtMillis: Long, nowMillis: Long): Boolean
+    fun begin(
+        executionId: String,
+        routineId: ShortcutId,
+        expiresAtMillis: Long,
+        nowMillis: Long,
+    ): Boolean
 
     /** Atomically changes RUNNING to WAITING_USER_ACTION. */
     fun waitForUser(continuation: RoutineContinuation): Boolean
 
     /** Atomically claims WAITING_USER_ACTION and changes it back to RUNNING. */
-    fun claim(identity: ContinuationIdentity, nowMillis: Long): ContinuationClaim
+    fun claim(
+        identity: ContinuationIdentity,
+        nowMillis: Long,
+    ): ContinuationClaim
 
     /** Atomically cancels only the matching waiting continuation. */
-    fun cancel(identity: ContinuationIdentity, nowMillis: Long): ContinuationClaim
+    fun cancel(
+        identity: ContinuationIdentity,
+        nowMillis: Long,
+    ): ContinuationClaim
 
     /** Clears only the matching active execution. */
     fun finish(executionId: String)

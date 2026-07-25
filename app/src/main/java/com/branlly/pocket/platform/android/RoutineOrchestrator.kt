@@ -7,6 +7,7 @@ import com.branlly.pocket.domain.execution.ContinuationClaim
 import com.branlly.pocket.domain.execution.ContinuationIdentity
 import com.branlly.pocket.domain.execution.RoutineContinuation
 import com.branlly.pocket.domain.execution.RoutineValidator
+import com.branlly.pocket.domain.media.MediaExecutionCheckpointCodec
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
@@ -62,14 +63,30 @@ object RoutineOrchestrator {
                     )
                 }
             }
-            ContinuationClaim.Expired -> reject(notifications, identity, "Cette continuation a expiré.")
-            ContinuationClaim.AlreadyConsumed -> reject(notifications, identity, "Cette continuation a déjà été utilisée.")
-            ContinuationClaim.Mismatch -> reject(notifications, identity, "Cette notification ne correspond pas à l’exécution active.")
-            ContinuationClaim.Missing -> reject(notifications, identity, "Cette continuation n’existe plus.")
+
+            ContinuationClaim.Expired -> {
+                reject(notifications, identity, "Cette continuation a expiré.")
+            }
+
+            ContinuationClaim.AlreadyConsumed -> {
+                reject(notifications, identity, "Cette continuation a déjà été utilisée.")
+            }
+
+            ContinuationClaim.Mismatch -> {
+                reject(notifications, identity, "Cette notification ne correspond pas à l’exécution active.")
+            }
+
+            ContinuationClaim.Missing -> {
+                reject(notifications, identity, "Cette continuation n’existe plus.")
+            }
         }
     }
 
-    fun cancel(context: Context, identity: ContinuationIdentity, expired: Boolean = false): RoutineExecutionResult {
+    fun cancel(
+        context: Context,
+        identity: ContinuationIdentity,
+        expired: Boolean = false,
+    ): RoutineExecutionResult {
         val appContext = context.applicationContext
         val store = PersistentRoutineExecutionStateStore(appContext)
         val notifications = AndroidContinuationNotificationGateway(appContext)
@@ -80,13 +97,23 @@ object RoutineOrchestrator {
                 notifications.showMessage(if (expired) "La continuation a expiré." else "Routine annulée.")
                 RoutineExecutionResult.Cancelled(if (expired) "Continuation expirée." else "Annulation utilisateur.")
             }
+
             ContinuationClaim.Expired -> {
                 notifications.showMessage("La continuation a expiré.")
                 RoutineExecutionResult.Cancelled("Continuation expirée.")
             }
-            ContinuationClaim.AlreadyConsumed -> RoutineExecutionResult.ContinuationRejected("Continuation déjà consommée.")
-            ContinuationClaim.Mismatch -> RoutineExecutionResult.ContinuationRejected("Identité de continuation incorrecte.")
-            ContinuationClaim.Missing -> RoutineExecutionResult.ContinuationRejected("Continuation absente.")
+
+            ContinuationClaim.AlreadyConsumed -> {
+                RoutineExecutionResult.ContinuationRejected("Continuation déjà consommée.")
+            }
+
+            ContinuationClaim.Mismatch -> {
+                RoutineExecutionResult.ContinuationRejected("Identité de continuation incorrecte.")
+            }
+
+            ContinuationClaim.Missing -> {
+                RoutineExecutionResult.ContinuationRejected("Continuation absente.")
+            }
         }
     }
 
@@ -111,23 +138,29 @@ object RoutineOrchestrator {
         if (result is RoutineExecutionResult.WaitingUserAction) {
             val now = System.currentTimeMillis()
             val node = routine.nodes[result.nodeIndex]
-            val continuation = RoutineContinuation(
-                continuationId = UUID.randomUUID().toString(),
-                executionId = executionId,
-                routineId = routine.id,
-                nodeId = result.nodeId,
-                nodeIndex = result.nodeIndex,
-                actionKind = result.actionKind,
-                actionParameters = ActionJsonCodecRegistry.DEFAULT.encode(node.action).toString(),
-                workflowCheckpoint = result.workflowCheckpoint,
-                routineSnapshot = routine,
-                createdAtMillis = now,
-                expiresAtMillis = now + continuationTtlMillis,
-            )
+            val continuation =
+                RoutineContinuation(
+                    continuationId = UUID.randomUUID().toString(),
+                    executionId = executionId,
+                    routineId = routine.id,
+                    nodeId = result.nodeId,
+                    nodeIndex = result.nodeIndex,
+                    actionKind = result.actionKind,
+                    actionParameters = ActionJsonCodecRegistry.DEFAULT.encode(node.action).toString(),
+                    workflowCheckpoint = result.workflowCheckpoint,
+                    continuationKey = result.workflowCheckpoint?.mediaContinuationKey(),
+                    routineSnapshot = routine,
+                    createdAtMillis = now,
+                    expiresAtMillis = now + continuationTtlMillis,
+                )
             if (!store.waitForUser(continuation)) {
                 store.finish(executionId)
                 claimedContinuationId?.let { AndroidContinuationNotificationGateway(context).remove(it) }
-                return RoutineExecutionResult.Stopped(result.nodeId, com.branlly.pocket.domain.execution.ActionResult.Failed("Impossible de persister la continuation."))
+                return RoutineExecutionResult.Stopped(
+                    result.nodeId,
+                    com.branlly.pocket.domain.execution.ActionResult
+                        .Failed("Impossible de persister la continuation."),
+                )
             }
             val notifications = AndroidContinuationNotificationGateway(context)
             claimedContinuationId?.let(notifications::remove)
@@ -150,6 +183,11 @@ object RoutineOrchestrator {
     }
 }
 
+private fun com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint.mediaContinuationKey(): String? {
+    if (actionKind != com.branlly.pocket.domain.model.ActionKind.PLAY_MEDIA || stateKey != "media_execution_v3") return null
+    return payload["checkpoint"]?.let(MediaExecutionCheckpointCodec::decode)?.continuationKey
+}
+
 internal fun isContinuationConsistent(continuation: RoutineContinuation): Boolean {
     val routine = continuation.routineSnapshot
     if (routine.id != continuation.routineId || continuation.nodeIndex !in routine.nodes.indices) return false
@@ -158,7 +196,10 @@ internal fun isContinuationConsistent(continuation: RoutineContinuation): Boolea
     continuation.workflowCheckpoint?.let { checkpoint ->
         if (checkpoint.actionId != continuation.nodeId || checkpoint.executionId != continuation.executionId ||
             checkpoint.routineId != continuation.routineId || checkpoint.actionKind != continuation.actionKind
-        ) return false
+        ) {
+            return false
+        }
+        if (continuation.continuationKey != null && checkpoint.mediaContinuationKey() != continuation.continuationKey) return false
     }
     return runCatching {
         ActionJsonCodecRegistry.DEFAULT.decode(JSONObject(continuation.actionParameters)) == node.action

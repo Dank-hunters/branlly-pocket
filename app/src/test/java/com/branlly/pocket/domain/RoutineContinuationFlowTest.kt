@@ -35,64 +35,101 @@ import org.junit.Test
 
 class RoutineContinuationFlowTest {
     @Test
-    fun `UserActionRequired waits then resumes blocked node and every remaining node`() = runBlocking {
-        val calls = mutableListOf<String>()
-        val app = ShortcutAction.OpenApplication(InputValue.Fixed("example.external.application"))
-        val wait = ShortcutAction.Wait(100)
-        val final = ShortcutAction.Notification("done", "done")
-        val registry = ActionRegistry(
-            listOf(
-                registration(ActionKind.OPEN_APPLICATION, ShortcutAction.OpenApplication::class.java, app) { _, context ->
-                    calls += "external:${context.userInitiated}"
-                    if (context.userInitiated) ActionResult.Completed else ActionResult.UserActionRequired("confirmation")
-                },
-                registration(ActionKind.WAIT, ShortcutAction.Wait::class.java, wait) { _, _ -> calls += "wait"; ActionResult.Completed },
-                registration(ActionKind.NOTIFICATION, ShortcutAction.Notification::class.java, final) { _, _ -> calls += "final"; ActionResult.Completed },
-            ),
-        )
-        val routine = routine(app, wait, final)
-        val executor = ShortcutExecutor(registry)
+    fun `UserActionRequired waits then resumes blocked node and every remaining node`() =
+        runBlocking {
+            val calls = mutableListOf<String>()
+            val app = ShortcutAction.OpenApplication(InputValue.Fixed("example.external.application"))
+            val wait = ShortcutAction.Wait(100)
+            val final = ShortcutAction.Notification("done", "done")
+            val registry =
+                ActionRegistry(
+                    listOf(
+                        registration(ActionKind.OPEN_APPLICATION, ShortcutAction.OpenApplication::class.java, app) { _, context ->
+                            calls += "external:${context.userInitiated}"
+                            if (context.userInitiated) ActionResult.Completed else ActionResult.UserActionRequired("confirmation")
+                        },
+                        registration(ActionKind.WAIT, ShortcutAction.Wait::class.java, wait) { _, _ ->
+                            calls += "wait"
+                            ActionResult.Completed
+                        },
+                        registration(ActionKind.NOTIFICATION, ShortcutAction.Notification::class.java, final) { _, _ ->
+                            calls += "final"
+                            ActionResult.Completed
+                        },
+                    ),
+                )
+            val routine = routine(app, wait, final)
+            val executor = ShortcutExecutor(registry)
 
-        val first = executor.execute(routine, "execution")
+            val first = executor.execute(routine, "execution")
 
-        assertTrue(first is RoutineExecutionResult.WaitingUserAction)
-        first as RoutineExecutionResult.WaitingUserAction
-        assertEquals(listOf("external:false"), calls)
+            assertTrue(first is RoutineExecutionResult.WaitingUserAction)
+            first as RoutineExecutionResult.WaitingUserAction
+            assertEquals(listOf("external:false"), calls)
 
-        val resumed = executor.execute(routine, "execution", first.nodeIndex, first.nodeId)
+            val resumed = executor.execute(routine, "execution", first.nodeIndex, first.nodeId)
 
-        assertEquals(RoutineExecutionResult.Completed, resumed)
-        assertEquals(listOf("external:false", "external:true", "wait", "final"), calls)
-    }
+            assertEquals(RoutineExecutionResult.Completed, resumed)
+            assertEquals(listOf("external:false", "external:true", "wait", "final"), calls)
+        }
 
     @Test
-    fun `open application route and settings use identical generic continuation semantics`() = runBlocking {
-        val actions = listOf<ShortcutAction>(
-            ShortcutAction.OpenApplication(InputValue.Fixed("example.application")),
-            ShortcutAction.OpenRoute(InputValue.Fixed("example.navigation"), InputValue.Fixed("destination")),
-            ShortcutAction.OpenSettings(SettingsPanel.WIFI),
-        )
-        for (action in actions) {
-            var resumedCalls = 0
-            val registration = when (action) {
-                is ShortcutAction.OpenApplication -> registration(action.kind, ShortcutAction.OpenApplication::class.java, action) { _, context ->
-                    if (context.userInitiated) { resumedCalls++; ActionResult.Completed } else ActionResult.UserActionRequired("user")
-                }
-                is ShortcutAction.OpenRoute -> registration(action.kind, ShortcutAction.OpenRoute::class.java, action) { _, context ->
-                    if (context.userInitiated) { resumedCalls++; ActionResult.Completed } else ActionResult.UserActionRequired("user")
-                }
-                is ShortcutAction.OpenSettings -> registration(action.kind, ShortcutAction.OpenSettings::class.java, action) { _, context ->
-                    if (context.userInitiated) { resumedCalls++; ActionResult.Completed } else ActionResult.UserActionRequired("user")
-                }
-                else -> error("unexpected")
+    fun `open application route and settings use identical generic continuation semantics`() =
+        runBlocking {
+            val actions =
+                listOf<ShortcutAction>(
+                    ShortcutAction.OpenApplication(InputValue.Fixed("example.application")),
+                    ShortcutAction.OpenRoute(InputValue.Fixed("example.navigation"), InputValue.Fixed("destination")),
+                    ShortcutAction.OpenSettings(SettingsPanel.WIFI),
+                )
+            for (action in actions) {
+                var resumedCalls = 0
+                val registration =
+                    when (action) {
+                        is ShortcutAction.OpenApplication -> {
+                            registration(action.kind, ShortcutAction.OpenApplication::class.java, action) { _, context ->
+                                if (context.userInitiated) {
+                                    resumedCalls++
+                                    ActionResult.Completed
+                                } else {
+                                    ActionResult.UserActionRequired("user")
+                                }
+                            }
+                        }
+
+                        is ShortcutAction.OpenRoute -> {
+                            registration(action.kind, ShortcutAction.OpenRoute::class.java, action) { _, context ->
+                                if (context.userInitiated) {
+                                    resumedCalls++
+                                    ActionResult.Completed
+                                } else {
+                                    ActionResult.UserActionRequired("user")
+                                }
+                            }
+                        }
+
+                        is ShortcutAction.OpenSettings -> {
+                            registration(action.kind, ShortcutAction.OpenSettings::class.java, action) { _, context ->
+                                if (context.userInitiated) {
+                                    resumedCalls++
+                                    ActionResult.Completed
+                                } else {
+                                    ActionResult.UserActionRequired("user")
+                                }
+                            }
+                        }
+
+                        else -> {
+                            error("unexpected")
+                        }
+                    }
+                val executor = ShortcutExecutor(ActionRegistry(listOf(registration)))
+                val routine = routine(action)
+                val waiting = executor.execute(routine, "generic") as RoutineExecutionResult.WaitingUserAction
+                assertEquals(RoutineExecutionResult.Completed, executor.execute(routine, "generic", waiting.nodeIndex, waiting.nodeId))
+                assertEquals(1, resumedCalls)
             }
-            val executor = ShortcutExecutor(ActionRegistry(listOf(registration)))
-            val routine = routine(action)
-            val waiting = executor.execute(routine, "generic") as RoutineExecutionResult.WaitingUserAction
-            assertEquals(RoutineExecutionResult.Completed, executor.execute(routine, "generic", waiting.nodeIndex, waiting.nodeId))
-            assertEquals(1, resumedCalls)
         }
-    }
 
     @Test
     fun `claim is atomic and two taps cannot consume twice`() {
@@ -101,6 +138,16 @@ class RoutineContinuationFlowTest {
         assertTrue(fixture.store.waitForUser(fixture.continuation))
         assertTrue(fixture.store.claim(fixture.identity, 2) is ContinuationClaim.Claimed)
         assertEquals(ContinuationClaim.AlreadyConsumed, fixture.store.claim(fixture.identity, 3))
+    }
+
+    @Test
+    fun `consumed business continuation key cannot be registered again`() {
+        val fixture = stateFixture()
+        val keyed = fixture.continuation.copy(continuationKey = "execution:node:operation:1")
+        fixture.store.begin("execution", fixture.routine.id, 10_000, 0)
+        assertTrue(fixture.store.waitForUser(keyed))
+        assertTrue(fixture.store.claim(fixture.identity, 2) is ContinuationClaim.Claimed)
+        assertFalse(fixture.store.waitForUser(keyed.copy(continuationId = "duplicate")))
     }
 
     @Test
@@ -158,9 +205,16 @@ class RoutineContinuationFlowTest {
     @Test
     fun `continuation identity and serialized action must match snapshot`() {
         val fixture = stateFixture()
-        val valid = fixture.continuation.copy(
-            actionParameters = ActionJsonCodecRegistry.DEFAULT.encode(fixture.routine.nodes.first().action).toString(),
-        )
+        val valid =
+            fixture.continuation.copy(
+                actionParameters =
+                    ActionJsonCodecRegistry.DEFAULT
+                        .encode(
+                            fixture.routine.nodes
+                                .first()
+                                .action,
+                        ).toString(),
+            )
         assertTrue(isContinuationConsistent(valid))
         assertFalse(isContinuationConsistent(valid.copy(nodeId = NodeId.new())))
         assertFalse(isContinuationConsistent(valid.copy(actionParameters = "{}")))
@@ -180,18 +234,19 @@ class RoutineContinuationFlowTest {
         val action = ShortcutAction.OpenApplication(InputValue.Fixed("example.external.application"))
         val routine = routine(action, ShortcutAction.Wait(100))
         val node = routine.nodes.first()
-        val continuation = RoutineContinuation(
-            continuationId = "continuation",
-            executionId = "execution",
-            routineId = routine.id,
-            nodeId = node.id,
-            nodeIndex = 0,
-            actionKind = action.kind,
-            actionParameters = "{example}",
-            routineSnapshot = routine,
-            createdAtMillis = 1,
-            expiresAtMillis = expiresAt,
-        )
+        val continuation =
+            RoutineContinuation(
+                continuationId = "continuation",
+                executionId = "execution",
+                routineId = routine.id,
+                nodeId = node.id,
+                nodeIndex = 0,
+                actionKind = action.kind,
+                actionParameters = "{example}",
+                routineSnapshot = routine,
+                createdAtMillis = 1,
+                expiresAtMillis = expiresAt,
+            )
         return Fixture(MemoryStateStore(), routine, continuation, ContinuationIdentity("continuation", "execution", routine.id, node.id))
     }
 
@@ -205,72 +260,120 @@ class RoutineContinuationFlowTest {
     private class MemoryStateStore : RoutineExecutionStateStore {
         private var current: ActiveExecution? = null
 
-        override fun begin(executionId: String, routineId: ShortcutId, expiresAtMillis: Long, nowMillis: Long): Boolean = synchronized(this) {
-            if (current?.expiresAtMillis?.let { it > nowMillis } == true) return@synchronized false
-            current = ActiveExecution(executionId, routineId, ExecutionStatus.RUNNING, expiresAtMillis)
-            true
+        override fun begin(
+            executionId: String,
+            routineId: ShortcutId,
+            expiresAtMillis: Long,
+            nowMillis: Long,
+        ): Boolean =
+            synchronized(this) {
+                if (current?.expiresAtMillis?.let { it > nowMillis } == true) return@synchronized false
+                current = ActiveExecution(executionId, routineId, ExecutionStatus.RUNNING, expiresAtMillis)
+                true
+            }
+
+        override fun waitForUser(continuation: RoutineContinuation): Boolean =
+            synchronized(this) {
+                val active = current ?: return@synchronized false
+                if (active.executionId != continuation.executionId || active.routineId != continuation.routineId ||
+                    active.status != ExecutionStatus.RUNNING ||
+                    (continuation.continuationKey != null && active.continuation?.continuationKey == continuation.continuationKey)
+                ) {
+                    return@synchronized false
+                }
+                current =
+                    active.copy(
+                        status = ExecutionStatus.WAITING_USER_ACTION,
+                        expiresAtMillis = continuation.expiresAtMillis,
+                        continuation = continuation,
+                    )
+                true
+            }
+
+        override fun claim(
+            identity: ContinuationIdentity,
+            nowMillis: Long,
+        ): ContinuationClaim =
+            synchronized(this) {
+                val active = current ?: return@synchronized ContinuationClaim.Missing
+                val continuation = active.continuation ?: return@synchronized ContinuationClaim.Missing
+                if (!matches(continuation, identity)) return@synchronized ContinuationClaim.Mismatch
+                if (continuation.expiresAtMillis <= nowMillis) {
+                    current = null
+                    return@synchronized ContinuationClaim.Expired
+                }
+                if (active.status != ExecutionStatus.WAITING_USER_ACTION) return@synchronized ContinuationClaim.AlreadyConsumed
+                current = active.copy(status = ExecutionStatus.RUNNING)
+                ContinuationClaim.Claimed(continuation)
+            }
+
+        override fun cancel(
+            identity: ContinuationIdentity,
+            nowMillis: Long,
+        ): ContinuationClaim =
+            synchronized(this) {
+                val active = current ?: return@synchronized ContinuationClaim.Missing
+                val continuation = active.continuation ?: return@synchronized ContinuationClaim.Missing
+                if (!matches(continuation, identity)) return@synchronized ContinuationClaim.Mismatch
+                if (continuation.expiresAtMillis <= nowMillis) {
+                    current = null
+                    return@synchronized ContinuationClaim.Expired
+                }
+                if (active.status != ExecutionStatus.WAITING_USER_ACTION) return@synchronized ContinuationClaim.AlreadyConsumed
+                current = null
+                ContinuationClaim.Claimed(continuation)
+            }
+
+        override fun finish(executionId: String) {
+            synchronized(this) { if (current?.executionId == executionId) current = null }
         }
 
-        override fun waitForUser(continuation: RoutineContinuation): Boolean = synchronized(this) {
-            val active = current ?: return@synchronized false
-            if (active.executionId != continuation.executionId || active.routineId != continuation.routineId || active.status != ExecutionStatus.RUNNING) return@synchronized false
-            current = active.copy(status = ExecutionStatus.WAITING_USER_ACTION, expiresAtMillis = continuation.expiresAtMillis, continuation = continuation)
-            true
-        }
+        override fun active(nowMillis: Long): ActiveExecution? =
+            synchronized(this) {
+                current?.takeIf { it.expiresAtMillis > nowMillis }.also { if (it == null) current = null }
+            }
 
-        override fun claim(identity: ContinuationIdentity, nowMillis: Long): ContinuationClaim = synchronized(this) {
-            val active = current ?: return@synchronized ContinuationClaim.Missing
-            val continuation = active.continuation ?: return@synchronized ContinuationClaim.Missing
-            if (!matches(continuation, identity)) return@synchronized ContinuationClaim.Mismatch
-            if (continuation.expiresAtMillis <= nowMillis) { current = null; return@synchronized ContinuationClaim.Expired }
-            if (active.status != ExecutionStatus.WAITING_USER_ACTION) return@synchronized ContinuationClaim.AlreadyConsumed
-            current = active.copy(status = ExecutionStatus.RUNNING)
-            ContinuationClaim.Claimed(continuation)
-        }
-
-        override fun cancel(identity: ContinuationIdentity, nowMillis: Long): ContinuationClaim = synchronized(this) {
-            val active = current ?: return@synchronized ContinuationClaim.Missing
-            val continuation = active.continuation ?: return@synchronized ContinuationClaim.Missing
-            if (!matches(continuation, identity)) return@synchronized ContinuationClaim.Mismatch
-            if (continuation.expiresAtMillis <= nowMillis) { current = null; return@synchronized ContinuationClaim.Expired }
-            if (active.status != ExecutionStatus.WAITING_USER_ACTION) return@synchronized ContinuationClaim.AlreadyConsumed
-            current = null
-            ContinuationClaim.Claimed(continuation)
-        }
-
-        override fun finish(executionId: String) { synchronized(this) { if (current?.executionId == executionId) current = null } }
-        override fun active(nowMillis: Long): ActiveExecution? = synchronized(this) {
-            current?.takeIf { it.expiresAtMillis > nowMillis }.also { if (it == null) current = null }
-        }
-
-        private fun matches(continuation: RoutineContinuation, identity: ContinuationIdentity) =
-            continuation.continuationId == identity.continuationId && continuation.executionId == identity.executionId &&
-                continuation.routineId == identity.routineId && continuation.nodeId == identity.nodeId
+        private fun matches(
+            continuation: RoutineContinuation,
+            identity: ContinuationIdentity,
+        ) = continuation.continuationId == identity.continuationId && continuation.executionId == identity.executionId &&
+            continuation.routineId == identity.routineId && continuation.nodeId == identity.nodeId
     }
 
-    private fun routine(vararg actions: ShortcutAction) = ShortcutDefinition(
-        name = "continuation",
-        trigger = Trigger.ManualButton,
-        nodes = actions.map { ActionNode(action = it) },
-    )
+    private fun routine(vararg actions: ShortcutAction) =
+        ShortcutDefinition(
+            name = "continuation",
+            trigger = Trigger.ManualButton,
+            nodes = actions.map { ActionNode(action = it) },
+        )
 
     private fun <A : ShortcutAction> registration(
         kind: ActionKind,
         type: Class<A>,
         default: A,
         execute: suspend (A, ActionExecutionContext) -> ActionResult,
-    ): RegisteredAction<A> = RegisteredAction(
-        kind,
-        type,
-        kind.name,
-        kind.name,
-        ActionCategory.ORGANIZE,
-        ActionEditorKey.WAIT,
-        { default },
-        handler = object : ActionHandler<A> {
-            override val kind = kind
-            override fun validate(action: A, context: ActionValidationContext) = emptyList<com.branlly.pocket.domain.execution.ActionValidationError>()
-            override suspend fun execute(action: A, context: ActionExecutionContext) = execute(action, context)
-        },
-    )
+    ): RegisteredAction<A> =
+        RegisteredAction(
+            kind,
+            type,
+            kind.name,
+            kind.name,
+            ActionCategory.ORGANIZE,
+            ActionEditorKey.WAIT,
+            { default },
+            handler =
+                object : ActionHandler<A> {
+                    override val kind = kind
+
+                    override fun validate(
+                        action: A,
+                        context: ActionValidationContext,
+                    ) = emptyList<com.branlly.pocket.domain.execution.ActionValidationError>()
+
+                    override suspend fun execute(
+                        action: A,
+                        context: ActionExecutionContext,
+                    ) = execute(action, context)
+                },
+        )
 }
