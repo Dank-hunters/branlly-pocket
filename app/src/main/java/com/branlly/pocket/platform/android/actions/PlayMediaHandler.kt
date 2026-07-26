@@ -45,7 +45,26 @@ class PlayMediaHandler(
         action: ShortcutAction.PlayMedia,
         context: ActionExecutionContext,
     ): ActionResult {
+        context.logger.log(
+            "PLAY_MEDIA_CONFIGURATION",
+            mapOf(
+                "nodeId" to context.nodeId.value,
+                "targetPackage" to action.targetPackage,
+                "hasSearch" to action.searchQuery.isNotBlank(),
+                "hasUri" to !action.mediaUri.isNullOrBlank(),
+                "resumed" to (context.workflowCheckpoint != null),
+            ),
+        )
         val capabilities = capabilityResolver.resolve(action)
+        context.logger.log(
+            "PLAY_MEDIA_CAPABILITIES",
+            mapOf(
+                "nodeId" to context.nodeId.value,
+                "packageInstalled" to capabilities.packageInstalled,
+                "listenerAuthorized" to capabilities.notificationListenerAuthorized,
+                "listenerAvailable" to capabilities.notificationListenerAvailable,
+            ),
+        )
         if (!capabilities.packageInstalled) return ActionResult.Failed("L’application multimédia n’est plus installée.")
         if (!capabilities.notificationListenerAuthorized) {
             return ActionResult.PermissionRequired("Autorisez l’accès aux notifications pour confirmer STATE_PLAYING.")

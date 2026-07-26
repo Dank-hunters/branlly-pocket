@@ -128,7 +128,16 @@ class PlayMediaCoordinator(
                 session.nextOperation()
                     ?: return finish(session, MediaExecutionResult.TimedOut("Aucune opération média restante."))
             if (!session.startOperation(operation.id)) return finish(session, MediaExecutionResult.Failed("Opération média déjà exécutée."))
-            when (val attempted = attempt(operation, action, context)) {
+            context.logger.log(
+                "PLAY_MEDIA_OPERATION_STARTED",
+                mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id, "operationType" to operation.type.name),
+            )
+            val attempted = attempt(operation, action, context)
+            context.logger.log(
+                "PLAY_MEDIA_OPERATION_RESULT",
+                mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id, "result" to attempted::class.simpleName),
+            )
+            when (attempted) {
                 is Attempt.UserLaunchRequired -> {
                     val checkpoint =
                         session.suspendForUser(operation.id)
