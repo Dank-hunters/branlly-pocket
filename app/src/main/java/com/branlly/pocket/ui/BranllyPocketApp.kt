@@ -2,6 +2,7 @@ package com.branlly.pocket.ui
 
 import android.content.Context
 import android.content.Intent
+import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateContentSize
@@ -42,6 +43,7 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,9 +56,14 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.catalog.visibleDescriptors
+import com.branlly.pocket.domain.execution.RoutineValidator
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.EditorMode
@@ -66,8 +73,9 @@ import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
 import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.domain.voice.LocalVoiceCommand
-import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.ShortcutExecutor
+import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
+import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
@@ -171,7 +179,7 @@ private fun HomeScreen(
         }
         item {
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                OutlinedButton(onClick = viewModel::showGuidedTriggers, shape = RoundedCornerShape(18.dp)) {
+                OutlinedButton(onClick = viewModel::showStart, shape = RoundedCornerShape(18.dp)) {
                     Text("＋  Nouveau raccourci")
                 }
             }
@@ -581,6 +589,28 @@ private fun EditorScreen(
 ) {
     val draft = state.draft ?: return
     val context = LocalContext.current
+    val validationIssues =
+        remember(context, draft) {
+            RoutineValidator(
+                AndroidActionRegistry.create(context.applicationContext),
+                AndroidActionValidationContext(context.applicationContext),
+            ).validate(draft)
+        }
+    val requiresMediaAccess = draft.nodes.any { it.enabled && it.action is ShortcutAction.PlayMedia }
+    val lifecycleOwner = LocalLifecycleOwner.current
+    var mediaAccessEnabled by remember(context) {
+        mutableStateOf(context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context))
+    }
+    DisposableEffect(lifecycleOwner, context) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) {
+                    mediaAccessEnabled = context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
+                }
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         bottomBar = {
@@ -589,10 +619,14 @@ private fun EditorScreen(
                     modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),
                     horizontalArrangement = Arrangement.spacedBy(10.dp),
                 ) {
-                    OutlinedButton(onClick = { testShortcut(context, draft) }, modifier = Modifier.weight(1f)) {
+                    OutlinedButton(
+                        onClick = { testShortcut(context, draft) },
+                        enabled = validationIssues.isEmpty() && (!requiresMediaAccess || mediaAccessEnabled),
+                        modifier = Modifier.weight(1f),
+                    ) {
                         Text("Tester")
                     }
-                    Button(onClick = viewModel::saveDraft, enabled = draft.nodes.isNotEmpty(), modifier = Modifier.weight(1f)) {
+                    Button(onClick = viewModel::saveDraft, enabled = validationIssues.isEmpty(), modifier = Modifier.weight(1f)) {
                         Text("Enregistrer")
                     }
                 }
@@ -640,6 +674,23 @@ private fun EditorScreen(
                 OutlinedButton(onClick = viewModel::showPresentationPicker, modifier = Modifier.padding(top = 8.dp)) {
                     Text("Icône et couleur")
                 }
+                validationIssues.filter { it.nodeId == null }.forEach { issue ->
+                    Text(issue.message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                }
+                if (requiresMediaAccess && !mediaAccessEnabled) {
+                    Text(
+                        "Autorisez le contrôle de lecture avant de tester une action média.",
+                        color = MaterialTheme.colorScheme.error,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                    OutlinedButton(
+                        onClick = {
+                            context.startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
+                        },
+                    ) {
+                        Text("Autoriser le contrôle de lecture")
+                    }
+                }
             }
             item { TriggerCard(draft, viewModel::showTriggerConfiguration) }
             item { InsertButton { viewModel.showLibrary(0) } }
@@ -658,6 +709,10 @@ private fun EditorScreen(
                     onContinueOnError = { viewModel.toggleContinueOnError(node.id) },
                     onTest = { testShortcut(context, draft.copy(nodes = listOf(node))) },
                     onDelete = { viewModel.remove(node.id) },
+                    validationMessages = validationIssues.filter { it.nodeId == node.id.value }.map { it.message },
+                    testEnabled =
+                        validationIssues.none { it.nodeId == node.id.value } &&
+                            (node.action !is ShortcutAction.PlayMedia || mediaAccessEnabled),
                 )
                 InsertButton { viewModel.showLibrary(index + 1) }
             }
@@ -740,6 +795,8 @@ private fun ActionCard(
     onContinueOnError: () -> Unit,
     onTest: () -> Unit,
     onDelete: () -> Unit,
+    validationMessages: List<String>,
+    testEnabled: Boolean,
 ) {
     val context = LocalContext.current
     val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
@@ -761,7 +818,14 @@ private fun ActionCard(
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) {
                     Text("ACTION $index", style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.primary)
-                    Text(actionRegistry.summary(node.action), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                    Text(
+                        actionRegistry.summary(node.action),
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    validationMessages.forEach { message ->
+                        Text(message, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
+                    }
                 }
                 Switch(checked = node.enabled, onCheckedChange = { onToggle() })
             }
@@ -791,7 +855,7 @@ private fun ActionCard(
                 }
             }
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                TextButton(onClick = onTest) { Text("Tester") }
+                TextButton(onClick = onTest, enabled = testEnabled) { Text("Tester") }
                 TextButton(onClick = onDuplicate) { Text("Dupliquer") }
                 TextButton(onClick = onDelete) { Text("Supprimer", color = MaterialTheme.colorScheme.error) }
             }
@@ -806,9 +870,14 @@ private fun ActionLibrary(
     onSelected: (ActionDescriptor) -> Unit,
 ) {
     val context = LocalContext.current
-    val ordered = remember(context, trigger, mode) {
-        AndroidActionRegistry.create(context.applicationContext).visibleDescriptors(trigger, includeAdvanced = mode == EditorMode.ADVANCED)
-    }
+    val ordered =
+        remember(context, trigger, mode) {
+            AndroidActionRegistry.create(context.applicationContext).visibleDescriptors(
+                trigger,
+                includeAdvanced =
+                    mode == EditorMode.ADVANCED,
+            )
+        }
     LazyColumn(
         contentPadding =
             androidx.compose.foundation.layout
@@ -936,7 +1005,8 @@ private fun testShortcut(
     context: Context,
     shortcut: ShortcutDefinition,
 ) {
-    com.branlly.pocket.platform.android.RoutineExecutionService.startTransient(context.applicationContext, shortcut)
+    com.branlly.pocket.platform.android.RoutineExecutionService
+        .startTransient(context.applicationContext, shortcut)
 }
 
 private fun shortcutGlyph(iconKey: String): String =

@@ -63,12 +63,13 @@ class EditorViewModel(
         _state.update { state ->
             EditorUiState(
                 screen = Screen.EDITOR,
-                draft = ShortcutDefinition(
-                    name = "Bluetooth",
-                    category = ShortcutCategory.OTHER,
-                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                    nodes = listOf(node),
-                ),
+                draft =
+                    ShortcutDefinition(
+                        name = "Bluetooth",
+                        category = ShortcutCategory.OTHER,
+                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
+                        nodes = listOf(node),
+                    ),
                 selectedNodeId = node.id,
                 savedShortcuts = state.savedShortcuts,
             )
@@ -80,12 +81,13 @@ class EditorViewModel(
         _state.update { state ->
             EditorUiState(
                 screen = Screen.EDITOR,
-                draft = ShortcutDefinition(
-                    name = "Jouer un média",
-                    category = ShortcutCategory.WELLBEING,
-                    trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                    nodes = listOf(node),
-                ),
+                draft =
+                    ShortcutDefinition(
+                        name = "Jouer un média",
+                        category = ShortcutCategory.WELLBEING,
+                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
+                        nodes = listOf(node),
+                    ),
                 selectedNodeId = node.id,
                 savedShortcuts = state.savedShortcuts,
             )
@@ -235,7 +237,7 @@ class EditorViewModel(
 
     fun exportRoutine(shortcut: ShortcutDefinition): String = store.export(shortcut)
 
-    fun showStart() = _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts) }
+    fun showStart() = _state.update { state -> EditorUiState(screen = Screen.START, savedShortcuts = state.savedShortcuts) }
 
     fun showGuidedTriggers() = _state.update { it.copy(screen = Screen.GUIDED_TRIGGER) }
 
