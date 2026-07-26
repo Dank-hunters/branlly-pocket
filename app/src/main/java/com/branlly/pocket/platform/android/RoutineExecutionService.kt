@@ -24,11 +24,33 @@ import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 
+internal class ExecutionJobRegistry {
+    private val jobs = ConcurrentHashMap<String, Job>()
+
+    fun register(
+        executionId: String,
+        job: Job,
+    ): Boolean = jobs.putIfAbsent(executionId, job) == null
+
+    fun complete(
+        executionId: String,
+        job: Job,
+    ) {
+        jobs.remove(executionId, job)
+    }
+
+    fun cancel(executionId: String): Boolean {
+        val job = jobs.remove(executionId) ?: return false
+        job.cancel()
+        return true
+    }
+}
+
 /** Foreground transport for every new, resumed, cancelled or expired execution command. */
 class RoutineExecutionService : Service() {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val activeCommands = AtomicInteger(0)
-    private val executionJobs = ConcurrentHashMap<String, Job>()
+    private val executionJobs = ExecutionJobRegistry()
 
     override fun onStartCommand(
         intent: Intent?,
@@ -45,7 +67,8 @@ class RoutineExecutionService : Service() {
                 ACTION_RESUME -> ContinuationIntentExtras.read(sourceIntent)?.executionId
                 else -> null
             }
-        val job =
+        var job: Job? = null
+        job =
             scope.launch(start = CoroutineStart.LAZY) {
                 try {
                     val result =
@@ -65,11 +88,13 @@ class RoutineExecutionService : Service() {
                 } catch (error: Throwable) {
                     Log.e(TAG, "APP_PACKAGE=$packageName command=$command state=CRASHED", error)
                 } finally {
-                    if (command != ACTION_CANCEL_ACTIVE) executionId?.let { executionJobs.remove(it) }
+                    if (command != ACTION_CANCEL_ACTIVE) {
+                        executionId?.let { id -> job?.let { executionJobs.complete(id, it) } }
+                    }
                     if (activeCommands.decrementAndGet() == 0) stopSelf()
                 }
             }
-        if (command != ACTION_CANCEL_ACTIVE) executionId?.let { executionJobs[it] = job }
+        if (command != ACTION_CANCEL_ACTIVE) executionId?.let { id -> job?.let { executionJobs.register(id, it) } }
         job.start()
         return START_NOT_STICKY
     }
@@ -134,8 +159,21 @@ class RoutineExecutionService : Service() {
         val executionId =
             intent.getStringExtra(EXTRA_EXECUTION_ID)
                 ?: return RoutineExecutionResult.ContinuationRejected("Identifiant d’exécution absent.")
-        executionJobs.remove(executionId)?.cancel()
-        PersistentRoutineExecutionStateStore(applicationContext).finish(executionId)
+        executionJobs.cancel(executionId)
+        val store = PersistentRoutineExecutionStateStore(applicationContext)
+        val continuation = store.active(System.currentTimeMillis())?.takeIf { it.executionId == executionId }?.continuation
+        if (continuation != null) {
+            return RoutineOrchestrator.cancel(
+                applicationContext,
+                ContinuationIdentity(
+                    continuation.continuationId,
+                    continuation.executionId,
+                    continuation.routineId,
+                    continuation.nodeId,
+                ),
+            )
+        }
+        store.finish(executionId)
         return RoutineExecutionResult.Cancelled("Annulation utilisateur.")
     }
 
