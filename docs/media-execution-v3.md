@@ -11,9 +11,9 @@ RoutineExecutionService → RoutineOrchestrator → ShortcutExecutor → ActionR
 
 `ShortcutExecutor` est l’unique propriétaire du node suivant. Les composants média ne connaissent ni le node précédent ni le node suivant.
 
-## Avant V3
+## Runtime actif
 
-La Phase 3A construit un `PlayMediaWorkflow` par exécution du handler. Les stratégies `direct_uri`, `media_session`, `provider_intent` et `manual_fallback` ont chacune leur waiter. Une continuation persiste `pendingStrategyId`, puis recrée le workflow et rejoue cette stratégie. Ainsi, une recherche fournisseur et le fallback peuvent ouvrir le même lecteur sur des tentatives distinctes.
+`PlayMediaCoordinator` est l’unique moteur de `PLAY_MEDIA`. L’ancien `PlayMediaWorkflow`, ses stratégies et ses checkpoints `pendingStrategyId` ont été supprimés ; aucun câblage runtime ne permet de les restaurer.
 
 ## Source de vérité V3
 
@@ -96,4 +96,4 @@ Elle conserve le plan et le baseline. Après claim atomique, elle exécute uniqu
 
 ## Legacy
 
-`OPEN_APPLICATION` et `WAIT_FOR_MEDIA_PLAYBACK` restent décodables et avancés. Le mode simple n’ajoute jamais ces nodes à `PLAY_MEDIA`. Une routine mélangeant `PLAY_MEDIA` avec une action legacy du même package est refusée par validation.
+`OPEN_APPLICATION` et `WAIT_FOR_MEDIA_PLAYBACK` restent décodables et avancés. `AndroidMediaPlaybackWaiter` est réservé à `WAIT_FOR_MEDIA_PLAYBACK` et n’est jamais injecté dans `PLAY_MEDIA`. Le mode simple n’ajoute jamais ces nodes à `PLAY_MEDIA`. Une routine mélangeant `PLAY_MEDIA` avec une action legacy du même package est refusée par validation.

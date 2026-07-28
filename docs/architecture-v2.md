@@ -102,21 +102,18 @@ Limite connue avant les phases suivantes : le checkpoint générique de workflow
 Modèle utilisateur unique : application cible, recherche, URI facultative, artiste, type préféré, politique de sélection, timeout, fallback manuel, automatisation avancée et stratégie d’erreur. Le mode simple ne montre que l’application et la recherche ; les autres champs restent dans une section avancée repliée.
 
 ```text
-RESOLVING_TARGET
-→ RESOLVING_CAPABILITIES
-→ TRYING_DIRECT_URI (au plus une fois)
-→ TRYING_MEDIA_SESSION (au plus une fois)
-→ TRYING_PROVIDER_INTENT (au plus une fois)
-→ WAITING_FOR_USER si nécessaire
-→ PLAYBACK_CONFIRMED
-→ COMPLETED
+PlayMediaHandler
+→ PlayMediaCoordinator
+→ MediaExecutionSession
+→ AndroidMediaOutcomeObserver
+→ ActionResult
 ```
 
-`MediaCapabilityResolver` calcule un snapshot sans effet de bord : installation, Activity, adaptateur, NotificationListener, sessions exactes, actions de transport et fallbacks autorisés. Le snapshot est calculé une fois puis conservé pendant l’action.
+`MediaCapabilityResolver` calcule un snapshot sans effet de bord : installation, Activity, adaptateur, NotificationListener, sessions exactes, actions de transport et fallbacks autorisés. `PlayMediaCoordinator` fige ensuite un plan borné : URI directe, MediaSession, recherche fournisseur puis assistance manuelle.
 
-`MediaPlaybackStrategy` reste une interface légère. Les stratégies sont séquentielles et retournent un résultat interne explicite : démarrage confirmé, attente de lecture, non supporté, échec récupérable, échec terminal ou interaction requise. Une ouverture ou une commande envoyée ne vaut jamais succès ; seul `STATE_PLAYING` du package exact permet `Completed`.
+Une ouverture ou une commande envoyée ne vaut jamais succès ; seul `STATE_PLAYING` du package exact permet `Completed`. Un observateur unique couvre tout le node et le nettoyage terminal libère callbacks et notification manuelle.
 
-Phase 3A implémente URI directe, MediaSession, Intent fournisseur générique et fallback manuel. L’automatisation Accessibility reste absente. Phase 3B documentera les capacités réelles des adaptateurs spécifiques et validera au moins deux lecteurs.
+L’ancien `PlayMediaWorkflow`, ses `MediaPlaybackStrategy` et son checkpoint `pendingStrategyId` sont supprimés. `AndroidMediaPlaybackWaiter` reste uniquement pour l’action avancée compatible `WAIT_FOR_MEDIA_PLAYBACK`. L’automatisation Accessibility reste absente.
 
 Confirmation média :
 
