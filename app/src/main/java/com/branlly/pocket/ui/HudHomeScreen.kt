@@ -6,6 +6,7 @@ import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -14,6 +15,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -39,6 +41,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
@@ -57,6 +60,7 @@ import com.branlly.pocket.ui.hud.ActionStepRow
 import com.branlly.pocket.ui.hud.HudBottomNavigation
 import com.branlly.pocket.ui.hud.HudCard
 import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudCutCornerShape
 import com.branlly.pocket.ui.hud.HudIconContainer
 import com.branlly.pocket.ui.hud.HudPanel
 import com.branlly.pocket.ui.hud.HudPrimaryButton
@@ -130,8 +134,8 @@ internal fun HudHomeScreen(
                 androidx.compose.foundation.layout.PaddingValues(
                     start = HudSpacing.Screen,
                     end = HudSpacing.Screen,
-                    top = 10.dp,
-                    bottom = 18.dp,
+                    top = 7.dp,
+                    bottom = 12.dp,
                 ),
             verticalArrangement = Arrangement.spacedBy(HudSpacing.Gap),
         ) {
@@ -155,18 +159,23 @@ internal fun HudHomeScreen(
             item {
                 Row(
                     modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    StatusRing(
-                        label = if (hasError) "ALERTE" else "PRÊT",
-                        detail = selected?.let { "${it.nodes.count { node -> node.enabled }} ACTIONS" } ?: "AUCUNE ROUTINE",
-                        color = ringColor,
-                        modifier = Modifier.weight(1.08f).clickable(onClick = launchSelected),
-                    )
+                    Box(
+                        modifier = Modifier.weight(1.08f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        StatusRing(
+                            label = if (hasError) "ALERTE" else "PRÊT",
+                            detail = selected?.let { "${it.nodes.count { node -> node.enabled }} ACTIONS" } ?: "AUCUNE ROUTINE",
+                            color = ringColor,
+                            modifier = Modifier.clickable(onClick = launchSelected),
+                        )
+                    }
                     Column(
                         modifier = Modifier.weight(0.92f),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp),
                     ) {
                         HudSystemCard(
                             "CONTRÔLE LECTURE",
@@ -219,6 +228,7 @@ internal fun HudHomeScreen(
                                 color = HudColors.CyanBright,
                                 fontFamily = FontFamily.Monospace,
                                 fontWeight = FontWeight.Bold,
+                                fontSize = 15.sp,
                                 letterSpacing = 0.8.sp,
                             )
                             Text(
@@ -265,7 +275,7 @@ internal fun HudHomeScreen(
                         Modifier
                             .fillMaxWidth()
                             .clickable { openLatestRelease(context) }
-                            .padding(vertical = 8.dp),
+                            .padding(vertical = 5.dp),
                     color = HudColors.TextSecondary,
                     fontFamily = FontFamily.Monospace,
                     fontSize = 10.sp,
@@ -298,30 +308,40 @@ private fun HudHeader(
     onImport: () -> Unit,
     onVoiceCommand: (LocalVoiceCommand) -> Unit,
 ) {
-    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        HudIconContainer("B", modifier = Modifier.size(48.dp), accent = HudColors.CyanBright)
-        Column(Modifier.weight(1f).padding(start = 12.dp)) {
+    Row(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HudIconContainer("B", modifier = Modifier.size(46.dp), accent = HudColors.CyanBright)
+        Column(Modifier.weight(1f).padding(start = 11.dp, end = 8.dp)) {
             Text(
                 "BRANLLY POCKET",
                 color = HudColors.TextPrimary,
                 fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.ExtraBold,
                 fontSize = 20.sp,
-                letterSpacing = 0.8.sp,
+                letterSpacing = 0.9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
+            Spacer(Modifier.height(1.dp))
             Text(
                 "ROUTINES LOCALES • EXÉCUTION DIRECTE",
                 color = HudColors.TextSecondary,
                 fontFamily = FontFamily.Monospace,
-                fontSize = 9.sp,
-                letterSpacing = 0.5.sp,
+                fontSize = 8.sp,
+                letterSpacing = 0.45.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
-        Box(Modifier.clickable(onClick = onImport)) {
-            HudIconContainer("⇩", modifier = Modifier.size(42.dp), accent = HudColors.TextSecondary)
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            Box(Modifier.clickable(onClick = onImport)) {
+                HudIconContainer("⇩", modifier = Modifier.size(40.dp), accent = HudColors.TextSecondary)
+            }
+            Spacer(Modifier.width(7.dp))
+            VoiceCommandControl(onCommand = onVoiceCommand)
         }
-        Spacer(Modifier.width(8.dp))
-        VoiceCommandControl(onCommand = onVoiceCommand)
     }
 }
 
@@ -332,12 +352,30 @@ private fun HudSystemCard(
     color: Color,
 ) {
     HudCard(modifier = Modifier.fillMaxWidth()) {
-        Text(label, color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 8.sp, letterSpacing = 0.5.sp)
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.size(6.dp).background(color, CircleShape))
-            Spacer(Modifier.width(6.dp))
-            Text(value, color = color, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold, fontSize = 10.sp)
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(
+                label,
+                modifier = Modifier.weight(1f),
+                color = HudColors.TextSecondary,
+                fontFamily = FontFamily.Monospace,
+                fontSize = 8.sp,
+                letterSpacing = 0.45.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Box(Modifier.size(5.dp).background(color, CircleShape))
         }
+        Box(Modifier.fillMaxWidth().height(1.dp).background(HudColors.Grid.copy(alpha = 0.7f)))
+        Text(
+            value,
+            color = color,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 10.sp,
+            letterSpacing = 0.4.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
     }
 }
 
@@ -367,17 +405,24 @@ private fun HudRoutinePanel(
                     color = HudColors.TextPrimary,
                     fontFamily = FontFamily.Monospace,
                     fontWeight = FontWeight.Bold,
-                    fontSize = 18.sp,
+                    fontSize = 17.sp,
                     maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
-            HudStatusBadge("PRÊTE", HudColors.Success)
+            HudStatusBadge("PRÊTE", HudColors.Success, Modifier.padding(start = 8.dp))
             Box {
                 Text(
                     "⋮",
-                    modifier = Modifier.clickable { onMenuExpandedChange(true) }.padding(horizontal = 10.dp, vertical = 4.dp),
+                    modifier =
+                        Modifier
+                            .clickable {
+                                onMenuExpandedChange(
+                                    true,
+                                )
+                            }.padding(start = 10.dp, end = 4.dp, top = 2.dp, bottom = 2.dp),
                     color = HudColors.CyanBright,
-                    fontSize = 24.sp,
+                    fontSize = 23.sp,
                 )
                 DropdownMenu(expanded = menuExpanded, onDismissRequest = { onMenuExpandedChange(false) }) {
                     DropdownMenuItem(text = { Text("Modifier") }, onClick = {
@@ -399,23 +444,26 @@ private fun HudRoutinePanel(
                 }
             }
         }
-        Box(Modifier.fillMaxWidth().size(width = 1.dp, height = 1.dp).background(HudColors.Grid))
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            HudMetric("DÉCLENCHEUR", triggerLabel(shortcut.trigger))
-            HudMetric("ACTIONS", shortcut.nodes.count { it.enabled }.toString())
-            HudMetric("MODE", shortcut.mode.name)
+        Box(Modifier.fillMaxWidth().height(1.dp).background(HudColors.Grid))
+        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            HudMetric("DÉCLENCHEUR", triggerLabel(shortcut.trigger), Modifier.weight(1f))
+            Box(Modifier.width(1.dp).height(25.dp).background(HudColors.Grid))
+            HudMetric("ACTIONS", shortcut.nodes.count { it.enabled }.toString(), Modifier.weight(0.72f))
+            Box(Modifier.width(1.dp).height(25.dp).background(HudColors.Grid))
+            HudMetric("MODE", shortcut.mode.name, Modifier.weight(1f))
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HudPrimaryButton("Exécuter", onLaunch, Modifier.weight(1f))
             Box(
                 modifier =
                     Modifier
-                        .size(58.dp)
-                        .background(HudColors.Cyan.copy(alpha = 0.08f), CircleShape)
+                        .size(54.dp)
+                        .background(HudColors.Cyan.copy(alpha = 0.07f), HudCutCornerShape)
+                        .border(1.dp, HudColors.Grid, HudCutCornerShape)
                         .clickable(onClick = onEdit),
                 contentAlignment = Alignment.Center,
             ) {
-                Text("✎", color = HudColors.CyanBright, fontSize = 22.sp)
+                Text("✎", color = HudColors.CyanBright, fontSize = 20.sp)
             }
         }
     }
@@ -425,15 +473,18 @@ private fun HudRoutinePanel(
 private fun HudMetric(
     label: String,
     value: String,
+    modifier: Modifier = Modifier,
 ) {
-    Column(horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 8.sp)
+    Column(modifier = modifier, horizontalAlignment = Alignment.CenterHorizontally) {
+        Text(label, color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 8.sp, maxLines = 1)
         Text(
             value.uppercase(),
             color = HudColors.TextPrimary,
             fontFamily = FontFamily.Monospace,
             fontWeight = FontWeight.Bold,
-            fontSize = 11.sp,
+            fontSize = 10.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }

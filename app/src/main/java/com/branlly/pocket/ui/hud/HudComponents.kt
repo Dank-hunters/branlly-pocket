@@ -4,11 +4,14 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,11 +19,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.shadow
@@ -30,9 +36,11 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -55,9 +63,9 @@ object HudColors {
 
 object HudSpacing {
     val Screen = 16.dp
-    val Panel = 14.dp
-    val Gap = 12.dp
-    val Tight = 7.dp
+    val Panel = 12.dp
+    val Gap = 10.dp
+    val Tight = 6.dp
 }
 
 val HudCutCornerShape =
@@ -112,8 +120,8 @@ fun HudCard(
             modifier
                 .background(HudColors.Card, HudCutCornerShape)
                 .border(1.dp, HudColors.Grid, HudCutCornerShape)
-                .padding(11.dp),
-        verticalArrangement = Arrangement.spacedBy(4.dp),
+                .padding(horizontal = 10.dp, vertical = 9.dp),
+        verticalArrangement = Arrangement.spacedBy(3.dp),
         content = content,
     )
 }
@@ -129,7 +137,7 @@ fun HudStatusBadge(
             modifier
                 .background(color.copy(alpha = 0.09f), HudCutCornerShape)
                 .border(1.dp, color.copy(alpha = 0.5f), HudCutCornerShape)
-                .padding(horizontal = 10.dp, vertical = 4.dp),
+                .padding(horizontal = 9.dp, vertical = 3.dp),
         contentAlignment = Alignment.Center,
     ) {
         Text(
@@ -151,38 +159,55 @@ fun HudPrimaryButton(
     enabled: Boolean = true,
 ) {
     val accent = if (enabled) HudColors.CyanBright else HudColors.Disabled
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
     Box(
         modifier =
             modifier
-                .height(58.dp)
-                .shadow(
-                    elevation = if (enabled) 12.dp else 0.dp,
+                .height(54.dp)
+                .graphicsLayer {
+                    scaleX = if (pressed && enabled) 0.985f else 1f
+                    scaleY = if (pressed && enabled) 0.985f else 1f
+                    alpha = if (enabled) 1f else 0.62f
+                }.shadow(
+                    elevation = if (enabled && !pressed) 9.dp else 2.dp,
                     shape = HudCutCornerShape,
-                    ambientColor = HudColors.Cyan.copy(alpha = 0.35f),
-                    spotColor = HudColors.Cyan.copy(alpha = 0.45f),
+                    ambientColor = HudColors.Cyan.copy(alpha = 0.28f),
+                    spotColor = HudColors.Cyan.copy(alpha = 0.36f),
                 ).background(
                     Brush.horizontalGradient(
                         listOf(
-                            HudColors.Cyan.copy(alpha = if (enabled) 0.22f else 0.05f),
-                            HudColors.Cyan.copy(alpha = if (enabled) 0.46f else 0.08f),
-                            HudColors.Cyan.copy(alpha = if (enabled) 0.18f else 0.05f),
+                            HudColors.Cyan.copy(alpha = if (enabled) 0.12f else 0.04f),
+                            HudColors.Cyan.copy(alpha = if (enabled && !pressed) 0.36f else 0.24f),
+                            HudColors.Cyan.copy(alpha = if (enabled) 0.12f else 0.04f),
                         ),
                     ),
                     HudCutCornerShape,
-                ).border(1.dp, accent, HudCutCornerShape)
-                .clickable(enabled = enabled, onClick = onClick),
+                ).border(1.dp, accent.copy(alpha = if (enabled) 0.9f else 0.45f), HudCutCornerShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
         contentAlignment = Alignment.Center,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Text("▶", color = accent, fontSize = 18.sp)
-            Spacer(Modifier.width(12.dp))
+        Box(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp),
+        ) {
+            Text("▶", modifier = Modifier.align(Alignment.CenterStart), color = accent, fontSize = 15.sp)
             Text(
                 text.uppercase(),
+                modifier = Modifier.align(Alignment.Center),
                 color = accent,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                fontSize = 16.sp,
-                letterSpacing = 1.2.sp,
+                fontSize = 15.sp,
+                letterSpacing = 1.1.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
     }
@@ -271,32 +296,52 @@ fun ActionStepRow(
     showConnector: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+    Box(modifier = modifier.fillMaxWidth().height(58.dp)) {
+        if (showConnector) {
             Box(
-                modifier = Modifier.size(22.dp).border(1.dp, HudColors.CyanMuted, CircleShape),
+                Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(start = 9.5.dp)
+                    .width(1.dp)
+                    .height(29.dp)
+                    .background(HudColors.CyanMuted),
+            )
+        }
+        Row(modifier = Modifier.fillMaxWidth().align(Alignment.TopStart), verticalAlignment = Alignment.CenterVertically) {
+            Box(
+                modifier =
+                    Modifier
+                        .size(
+                            20.dp,
+                        ).background(HudColors.BackgroundRaised, CircleShape)
+                        .border(1.dp, HudColors.CyanMuted, CircleShape),
                 contentAlignment = Alignment.Center,
             ) {
-                Text(index.toString(), color = HudColors.CyanBright, fontFamily = FontFamily.Monospace, fontSize = 10.sp)
+                Text(index.toString(), color = HudColors.CyanBright, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
             }
-            if (showConnector) {
-                Box(Modifier.width(1.dp).height(48.dp).background(HudColors.CyanMuted))
+            Spacer(Modifier.width(8.dp))
+            HudIconContainer(glyph = glyph, modifier = Modifier.size(38.dp), accent = statusColor)
+            Spacer(Modifier.width(9.dp))
+            Column(Modifier.weight(1f)) {
+                Text(
+                    title.uppercase(),
+                    color = HudColors.TextPrimary,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontFamily = FontFamily.Monospace,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Text(
+                    summary,
+                    color = HudColors.TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
             }
+            Spacer(Modifier.width(6.dp))
+            HudStatusBadge(status, statusColor, Modifier.widthIn(min = 64.dp))
         }
-        Spacer(Modifier.width(8.dp))
-        HudIconContainer(glyph = glyph, modifier = Modifier.size(42.dp), accent = statusColor)
-        Spacer(Modifier.width(10.dp))
-        Column(Modifier.weight(1f)) {
-            Text(
-                title.uppercase(),
-                color = HudColors.TextPrimary,
-                style = MaterialTheme.typography.labelLarge,
-                fontFamily = FontFamily.Monospace,
-                maxLines = 1,
-            )
-            Text(summary, color = HudColors.TextSecondary, style = MaterialTheme.typography.bodySmall, maxLines = 2)
-        }
-        HudStatusBadge(status, statusColor)
     }
 }
 
@@ -313,8 +358,7 @@ fun HudBottomNavigation(
                 .fillMaxWidth()
                 .background(HudColors.BackgroundRaised)
                 .border(1.dp, HudColors.Grid, HudCutCornerShape)
-                .padding(horizontal = 18.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.SpaceAround,
+                .padding(horizontal = 10.dp, vertical = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         HudNavItem("⌂", "ACCUEIL", selected = true, onClick = onHome)
@@ -324,7 +368,7 @@ fun HudBottomNavigation(
 }
 
 @Composable
-private fun HudNavItem(
+private fun RowScope.HudNavItem(
     glyph: String,
     label: String,
     selected: Boolean,
@@ -332,10 +376,17 @@ private fun HudNavItem(
 ) {
     val color = if (selected) HudColors.CyanBright else HudColors.TextSecondary
     Column(
-        modifier = Modifier.clickable(onClick = onClick).padding(horizontal = 12.dp, vertical = 4.dp),
+        modifier =
+            Modifier
+                .weight(1f)
+                .background(if (selected) HudColors.Cyan.copy(alpha = 0.07f) else Color.Transparent, HudCutCornerShape)
+                .then(if (selected) Modifier.border(1.dp, HudColors.Grid, HudCutCornerShape) else Modifier)
+                .clickable(onClick = onClick)
+                .padding(vertical = 5.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Text(glyph, color = color, fontSize = 21.sp, fontWeight = FontWeight.Bold)
+        Text(glyph, color = color, fontSize = 19.sp, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.height(1.dp))
         Text(label, color = color, fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 0.6.sp)
     }
 }
