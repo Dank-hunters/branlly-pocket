@@ -95,7 +95,7 @@ fun BranllyPocketApp(
     }
     val state by viewModel.state.collectAsState()
     when (state.screen) {
-        Screen.HOME -> HomeScreen(state, viewModel)
+        Screen.HOME -> HudHomeScreen(state, viewModel)
         Screen.START -> StartScreen(viewModel)
         Screen.GUIDED_TRIGGER -> TriggerScreen(viewModel)
         Screen.ACTION_CHOICE -> ActionChoiceScreen(viewModel)
