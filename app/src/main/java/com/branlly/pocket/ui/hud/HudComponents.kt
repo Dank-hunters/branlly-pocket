@@ -1,5 +1,6 @@
 package com.branlly.pocket.ui.hud
 
+import android.app.Activity
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -24,7 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
@@ -37,12 +40,16 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowInsetsControllerCompat
 
 object HudColors {
     val Background = Color(0xFF020812)
@@ -68,6 +75,56 @@ object HudSpacing {
     val Tight = 6.dp
 }
 
+@Composable
+fun HudSurfaceTheme(content: @Composable () -> Unit) {
+    val context = LocalContext.current
+    val activity = context as? Activity
+    DisposableEffect(activity) {
+        val controller = activity?.window?.let { WindowInsetsControllerCompat(it, it.decorView) }
+        val previousLightStatusBars = controller?.isAppearanceLightStatusBars
+        val previousLightNavigationBars = controller?.isAppearanceLightNavigationBars
+        controller?.isAppearanceLightStatusBars = false
+        controller?.isAppearanceLightNavigationBars = false
+        onDispose {
+            previousLightStatusBars?.let { controller?.isAppearanceLightStatusBars = it }
+            previousLightNavigationBars?.let { controller?.isAppearanceLightNavigationBars = it }
+        }
+    }
+    val baseTypography = MaterialTheme.typography
+    MaterialTheme(
+        colorScheme =
+            darkColorScheme(
+                primary = HudColors.CyanBright,
+                onPrimary = HudColors.Background,
+                primaryContainer = HudColors.Card,
+                onPrimaryContainer = HudColors.TextPrimary,
+                secondary = HudColors.Cyan,
+                onSecondary = HudColors.Background,
+                background = HudColors.Background,
+                onBackground = HudColors.TextPrimary,
+                surface = HudColors.BackgroundRaised,
+                onSurface = HudColors.TextPrimary,
+                surfaceVariant = HudColors.Card,
+                onSurfaceVariant = HudColors.TextSecondary,
+                error = HudColors.Error,
+                onError = HudColors.Background,
+                outline = HudColors.CyanMuted,
+                scrim = Color.Black,
+            ),
+        typography =
+            baseTypography.copy(
+                headlineMedium = baseTypography.headlineMedium.copy(fontFamily = FontFamily.Monospace),
+                headlineSmall = baseTypography.headlineSmall.copy(fontFamily = FontFamily.Monospace),
+                titleLarge = baseTypography.titleLarge.copy(fontFamily = FontFamily.Monospace),
+                titleMedium = baseTypography.titleMedium.copy(fontFamily = FontFamily.Monospace),
+                labelLarge = baseTypography.labelLarge.copy(fontFamily = FontFamily.Monospace),
+                labelMedium = baseTypography.labelMedium.copy(fontFamily = FontFamily.Monospace),
+                labelSmall = baseTypography.labelSmall.copy(fontFamily = FontFamily.Monospace),
+            ),
+        content = content,
+    )
+}
+
 val HudCutCornerShape =
     GenericShape { size, _ ->
         val cut = 14f
@@ -86,6 +143,8 @@ val HudCutCornerShape =
 fun HudPanel(
     modifier: Modifier = Modifier,
     glow: Boolean = false,
+    borderColor: Color = HudColors.CyanMuted,
+    backgroundColor: Color = HudColors.Panel,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     Column(
@@ -102,8 +161,8 @@ fun HudPanel(
                     } else {
                         Modifier
                     },
-                ).background(HudColors.Panel, HudCutCornerShape)
-                .border(1.dp, HudColors.CyanMuted, HudCutCornerShape)
+                ).background(backgroundColor, HudCutCornerShape)
+                .border(1.dp, borderColor, HudCutCornerShape)
                 .padding(HudSpacing.Panel),
         verticalArrangement = Arrangement.spacedBy(HudSpacing.Tight),
         content = content,
@@ -124,6 +183,69 @@ fun HudCard(
         verticalArrangement = Arrangement.spacedBy(3.dp),
         content = content,
     )
+}
+
+@Composable
+fun HudChoiceCard(
+    badge: String,
+    title: String,
+    description: String,
+    glyph: String,
+    prominent: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val accent = if (prominent) HudColors.CyanBright else HudColors.CyanMuted
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .graphicsLayer {
+                    scaleX = if (pressed) 0.99f else 1f
+                    scaleY = if (pressed) 0.99f else 1f
+                }.background(
+                    if (pressed) HudColors.Cyan.copy(alpha = 0.13f) else HudColors.Card,
+                    HudCutCornerShape,
+                ).border(1.dp, accent.copy(alpha = if (prominent) 0.8f else 0.55f), HudCutCornerShape)
+                .clickable(interactionSource = interactionSource, indication = null, onClick = onClick)
+                .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        HudIconContainer(glyph, Modifier.size(42.dp), if (prominent) HudColors.CyanBright else HudColors.TextSecondary)
+        Spacer(Modifier.width(12.dp))
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (badge.isNotEmpty()) {
+                Text(
+                    badge.uppercase(),
+                    color = if (prominent) HudColors.CyanBright else HudColors.TextSecondary,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 9.sp,
+                    letterSpacing = 0.7.sp,
+                )
+            }
+            Text(
+                title,
+                color = HudColors.TextPrimary,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                fontSize = 17.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                description,
+                color = HudColors.TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+        Spacer(Modifier.width(8.dp))
+        Text("›", color = accent, fontFamily = FontFamily.Monospace, fontSize = 22.sp)
+    }
 }
 
 @Composable
@@ -157,6 +279,7 @@ fun HudPrimaryButton(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
+    labelFontSize: TextUnit = 15.sp,
 ) {
     val accent = if (enabled) HudColors.CyanBright else HudColors.Disabled
     val interactionSource = remember { MutableInteractionSource() }
@@ -204,11 +327,99 @@ fun HudPrimaryButton(
                 color = accent,
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
-                fontSize = 15.sp,
+                fontSize = labelFontSize,
                 letterSpacing = 1.1.sp,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
+        }
+    }
+}
+
+@Composable
+fun HudSecondaryButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    accent: Color = HudColors.CyanBright,
+    height: Dp = 44.dp,
+) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val pressed by interactionSource.collectIsPressedAsState()
+    val resolvedAccent = if (enabled) accent else HudColors.Disabled
+    Box(
+        modifier =
+            modifier
+                .height(height)
+                .graphicsLayer {
+                    scaleX = if (pressed && enabled) 0.985f else 1f
+                    scaleY = if (pressed && enabled) 0.985f else 1f
+                    alpha = if (enabled) 1f else 0.55f
+                }.background(
+                    resolvedAccent.copy(alpha = if (pressed) 0.14f else 0.06f),
+                    HudCutCornerShape,
+                ).border(1.dp, resolvedAccent.copy(alpha = 0.65f), HudCutCornerShape)
+                .clickable(
+                    interactionSource = interactionSource,
+                    indication = null,
+                    enabled = enabled,
+                    onClick = onClick,
+                ),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text.uppercase(),
+            modifier = Modifier.padding(horizontal = 12.dp),
+            color = resolvedAccent,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 11.sp,
+            letterSpacing = 0.7.sp,
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+@Composable
+fun HudValidationMessage(
+    message: String,
+    modifier: Modifier = Modifier,
+) {
+    Row(
+        modifier =
+            modifier
+                .fillMaxWidth()
+                .background(HudColors.Error.copy(alpha = 0.08f), HudCutCornerShape)
+                .border(1.dp, HudColors.Error.copy(alpha = 0.55f), HudCutCornerShape)
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.Top,
+    ) {
+        Text("!", color = HudColors.Error, fontFamily = FontFamily.Monospace, fontWeight = FontWeight.Bold)
+        Spacer(Modifier.width(8.dp))
+        Text(message, modifier = Modifier.weight(1f), color = HudColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
+    }
+}
+
+@Composable
+fun HudSectionHeader(
+    title: String,
+    detail: String? = null,
+    modifier: Modifier = Modifier,
+) {
+    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            title.uppercase(),
+            modifier = Modifier.weight(1f),
+            color = HudColors.CyanBright,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.Bold,
+            fontSize = 14.sp,
+            letterSpacing = 0.8.sp,
+        )
+        detail?.let {
+            Text(it.uppercase(), color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
         }
     }
 }
