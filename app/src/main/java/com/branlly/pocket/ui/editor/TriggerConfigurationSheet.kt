@@ -40,7 +40,11 @@ import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.ConnectionEvent
 import com.branlly.pocket.domain.model.NumericComparison
 import com.branlly.pocket.domain.model.Trigger
+import com.branlly.pocket.domain.model.summary
 import com.branlly.pocket.platform.android.PairedBluetoothCatalog
+import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudSectionHeader
 import java.time.DayOfWeek
 import java.time.LocalTime
 import kotlin.math.roundToInt
@@ -52,13 +56,20 @@ fun TriggerConfigurationSheet(
     onTriggerChange: (Trigger) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = HudColors.BackgroundRaised,
+        contentColor = HudColors.TextPrimary,
+    ) {
         Column(
-            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+            modifier = Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Configurer le déclencheur", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            HorizontalDivider()
+            HudPanel {
+                HudSectionHeader("Configurer le déclencheur", "Routine")
+                Text(trigger.summary(), color = HudColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+            }
+            HorizontalDivider(color = HudColors.Grid)
             when (trigger) {
                 is Trigger.Time -> TimeTriggerForm(trigger, onTriggerChange)
                 is Trigger.Bluetooth -> BluetoothTriggerForm(trigger, onTriggerChange)
@@ -75,7 +86,10 @@ fun TriggerConfigurationSheet(
 }
 
 @Composable
-private fun TimeTriggerForm(trigger: Trigger.Time, onChange: (Trigger) -> Unit) {
+private fun TimeTriggerForm(
+    trigger: Trigger.Time,
+    onChange: (Trigger) -> Unit,
+) {
     NumberSlider("Heure", trigger.time.hour, 0..23) { hour ->
         onChange(trigger.copy(time = trigger.time.withHour(hour)))
     }
@@ -102,13 +116,17 @@ private fun TimeTriggerForm(trigger: Trigger.Time, onChange: (Trigger) -> Unit) 
 }
 
 @Composable
-private fun BluetoothTriggerForm(trigger: Trigger.Bluetooth, onChange: (Trigger) -> Unit) {
+private fun BluetoothTriggerForm(
+    trigger: Trigger.Bluetooth,
+    onChange: (Trigger) -> Unit,
+) {
     val context = LocalContext.current
     val catalog = remember(context) { PairedBluetoothCatalog(context.applicationContext) }
     var permissionRefresh by remember { mutableIntStateOf(0) }
-    val permissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
-        permissionRefresh += 1
-    }
+    val permissionLauncher =
+        rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
+            permissionRefresh += 1
+        }
     val devices = remember(permissionRefresh) { catalog.load() }
 
     Text("Appareil associé", fontWeight = FontWeight.SemiBold)
@@ -122,11 +140,21 @@ private fun BluetoothTriggerForm(trigger: Trigger.Bluetooth, onChange: (Trigger)
         LazyColumn(modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             items(devices, key = { it.address }) { device ->
                 Surface(
-                    modifier = Modifier.fillMaxWidth().clickable {
-                        onChange(trigger.copy(deviceAddress = device.address, deviceName = device.name))
-                    },
-                    color = if (device.address == trigger.deviceAddress) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant,
-                    shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp),
+                    modifier =
+                        Modifier.fillMaxWidth().clickable {
+                            onChange(trigger.copy(deviceAddress = device.address, deviceName = device.name))
+                        },
+                    color =
+                        if (device.address ==
+                            trigger.deviceAddress
+                        ) {
+                            MaterialTheme.colorScheme.primaryContainer
+                        } else {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        },
+                    shape =
+                        androidx.compose.foundation.shape
+                            .RoundedCornerShape(12.dp),
                 ) {
                     Text(device.name, modifier = Modifier.padding(14.dp))
                 }
@@ -145,7 +173,10 @@ private fun BluetoothTriggerForm(trigger: Trigger.Bluetooth, onChange: (Trigger)
 }
 
 @Composable
-private fun WifiTriggerForm(trigger: Trigger.Wifi, onChange: (Trigger) -> Unit) {
+private fun WifiTriggerForm(
+    trigger: Trigger.Wifi,
+    onChange: (Trigger) -> Unit,
+) {
     OutlinedTextField(
         value = trigger.ssid,
         onValueChange = { if (it.length <= 32) onChange(trigger.copy(ssid = it)) },
@@ -159,14 +190,20 @@ private fun WifiTriggerForm(trigger: Trigger.Wifi, onChange: (Trigger) -> Unit) 
 }
 
 @Composable
-private fun ChargerTriggerForm(trigger: Trigger.Charger, onChange: (Trigger) -> Unit) {
+private fun ChargerTriggerForm(
+    trigger: Trigger.Charger,
+    onChange: (Trigger) -> Unit,
+) {
     ChoiceRow("Événement", ChargerEvent.entries, trigger.event, ChargerEvent::label) {
         onChange(trigger.copy(event = it))
     }
 }
 
 @Composable
-private fun BatteryTriggerForm(trigger: Trigger.BatteryLevel, onChange: (Trigger) -> Unit) {
+private fun BatteryTriggerForm(
+    trigger: Trigger.BatteryLevel,
+    onChange: (Trigger) -> Unit,
+) {
     ChoiceRow("Condition", NumericComparison.entries, trigger.comparison, NumericComparison::label) {
         onChange(trigger.copy(comparison = it))
     }
@@ -176,7 +213,12 @@ private fun BatteryTriggerForm(trigger: Trigger.BatteryLevel, onChange: (Trigger
 }
 
 @Composable
-private fun NumberSlider(label: String, value: Int, range: IntRange, onChange: (Int) -> Unit) {
+private fun NumberSlider(
+    label: String,
+    value: Int,
+    range: IntRange,
+    onChange: (Int) -> Unit,
+) {
     Column {
         Text("$label : $value", fontWeight = FontWeight.SemiBold)
         Slider(
@@ -189,7 +231,13 @@ private fun NumberSlider(label: String, value: Int, range: IntRange, onChange: (
 }
 
 @Composable
-private fun <T> ChoiceRow(label: String, choices: List<T>, selected: T, text: (T) -> String, onSelected: (T) -> Unit) {
+private fun <T> ChoiceRow(
+    label: String,
+    choices: List<T>,
+    selected: T,
+    text: (T) -> String,
+    onSelected: (T) -> Unit,
+) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, fontWeight = FontWeight.SemiBold)
         LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -205,39 +253,47 @@ private fun <T> ChoiceRow(label: String, choices: List<T>, selected: T, text: (T
 }
 
 @Composable
-private fun ToggleRow(label: String, checked: Boolean, onCheckedChange: (Boolean) -> Unit) {
+private fun ToggleRow(
+    label: String,
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, modifier = Modifier.weight(1f))
         Switch(checked = checked, onCheckedChange = onCheckedChange)
     }
 }
 
-private fun DayOfWeek.shortLabel() = when (this) {
-    DayOfWeek.MONDAY -> "Lun"
-    DayOfWeek.TUESDAY -> "Mar"
-    DayOfWeek.WEDNESDAY -> "Mer"
-    DayOfWeek.THURSDAY -> "Jeu"
-    DayOfWeek.FRIDAY -> "Ven"
-    DayOfWeek.SATURDAY -> "Sam"
-    DayOfWeek.SUNDAY -> "Dim"
-}
+private fun DayOfWeek.shortLabel() =
+    when (this) {
+        DayOfWeek.MONDAY -> "Lun"
+        DayOfWeek.TUESDAY -> "Mar"
+        DayOfWeek.WEDNESDAY -> "Mer"
+        DayOfWeek.THURSDAY -> "Jeu"
+        DayOfWeek.FRIDAY -> "Ven"
+        DayOfWeek.SATURDAY -> "Sam"
+        DayOfWeek.SUNDAY -> "Dim"
+    }
 
-private fun ConnectionEvent.label() = when (this) {
-    ConnectionEvent.CONNECTED -> "Connexion"
-    ConnectionEvent.DISCONNECTED -> "Déconnexion"
-    ConnectionEvent.BOTH -> "Les deux"
-}
+private fun ConnectionEvent.label() =
+    when (this) {
+        ConnectionEvent.CONNECTED -> "Connexion"
+        ConnectionEvent.DISCONNECTED -> "Déconnexion"
+        ConnectionEvent.BOTH -> "Les deux"
+    }
 
-private fun ChargerEvent.label() = when (this) {
-    ChargerEvent.PLUGGED -> "Branché"
-    ChargerEvent.UNPLUGGED -> "Débranché"
-    ChargerEvent.BOTH -> "Les deux"
-}
+private fun ChargerEvent.label() =
+    when (this) {
+        ChargerEvent.PLUGGED -> "Branché"
+        ChargerEvent.UNPLUGGED -> "Débranché"
+        ChargerEvent.BOTH -> "Les deux"
+    }
 
-private fun NumericComparison.label() = when (this) {
-    NumericComparison.LESS_THAN -> "Inférieure à"
-    NumericComparison.LESS_OR_EQUAL -> "Inférieure ou égale à"
-    NumericComparison.EQUAL -> "Égale à"
-    NumericComparison.GREATER_OR_EQUAL -> "Supérieure ou égale à"
-    NumericComparison.GREATER_THAN -> "Supérieure à"
-}
+private fun NumericComparison.label() =
+    when (this) {
+        NumericComparison.LESS_THAN -> "Inférieure à"
+        NumericComparison.LESS_OR_EQUAL -> "Inférieure ou égale à"
+        NumericComparison.EQUAL -> "Égale à"
+        NumericComparison.GREATER_OR_EQUAL -> "Supérieure ou égale à"
+        NumericComparison.GREATER_THAN -> "Supérieure à"
+    }

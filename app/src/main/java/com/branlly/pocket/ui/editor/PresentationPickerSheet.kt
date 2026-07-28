@@ -34,6 +34,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.branlly.pocket.domain.model.ShortcutAccentColor
+import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudCutCornerShape
+import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudSectionHeader
 
 private data class IconChoice(
     val key: String,
@@ -75,13 +79,19 @@ fun PresentationPickerSheet(
             (category == "Tous" || it.category == category) &&
                 (query.isBlank() || it.label.contains(query.trim(), ignoreCase = true))
         }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = HudColors.BackgroundRaised,
+        contentColor = HudColors.TextPrimary,
+    ) {
         Column(
             modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Personnaliser", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Icône et couleur du raccourci", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HudPanel {
+                HudSectionHeader("Personnaliser", "Présentation")
+                Text("Icône et couleur du raccourci", color = HudColors.TextSecondary)
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -98,15 +108,8 @@ fun PresentationPickerSheet(
                 items(filtered, key = IconChoice::key) { choice ->
                     Surface(
                         modifier = Modifier.size(width = 84.dp, height = 74.dp).clickable { onChange(choice.key, accentColor) },
-                        shape = RoundedCornerShape(14.dp),
-                        color =
-                            if (choice.key ==
-                                iconKey
-                            ) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
+                        shape = HudCutCornerShape,
+                        color = if (choice.key == iconKey) HudColors.Cyan.copy(alpha = 0.16f) else HudColors.Card,
                     ) {
                         Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 10.dp)) {
                             Text(choice.glyph, style = MaterialTheme.typography.titleLarge)
@@ -115,7 +118,7 @@ fun PresentationPickerSheet(
                     }
                 }
             }
-            Text("Couleur", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            HudSectionHeader("Couleur")
             LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 items(ShortcutAccentColor.entries, key = { it.name }) { color ->
                     val selected = color == accentColor
