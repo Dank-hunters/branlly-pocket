@@ -1,5 +1,18 @@
 # Journal des modifications
 
+## 0.15.1
+
+### Nouveautés et améliorations
+
+- Un assistant guide la configuration des autorisations au premier lancement.
+- Les demandes d’autorisations s’adaptent désormais à la version Android utilisée.
+- L’accès au contrôle de lecture est plus simple à activer et à vérifier.
+- Branlly signale précisément une autorisation retirée après la configuration.
+- Un test intégré permet de vérifier l’affichage et les actions des notifications.
+- La petite icône des notifications est maintenant correctement affichée sur Android 11.
+- Les notifications de continuation sont plus lisibles et conservent leurs actions Continuer et Annuler.
+- Les routines existantes ne nécessitent aucune modification.
+
 ## 0.15.0
 
 ### Nouveautés et améliorations
