@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.branlly.pocket.ui.editor
 
 import android.util.Log
@@ -5,12 +7,19 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -50,6 +59,10 @@ import com.branlly.pocket.platform.android.InstalledApplicationCatalog
 import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
 import com.branlly.pocket.platform.android.actions.BuiltInProviderCatalog
+import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudSectionHeader
+import com.branlly.pocket.ui.hud.HudValidationMessage
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
@@ -64,23 +77,29 @@ fun ActionConfigurationSheet(
     val context = LocalContext.current
     val registry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
     val registration = registry.registration(node.action.kind)
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = HudColors.BackgroundRaised,
+        contentColor = HudColors.TextPrimary,
+    ) {
         Column(
             modifier =
                 Modifier
                     .fillMaxWidth()
                     .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
                     .navigationBarsPadding()
-                    .padding(start = 20.dp, end = 20.dp, bottom = 28.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp),
+                    .imePadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 28.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Column {
-                Text("Configurer l’action", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-                Text(registry.summary(node.action), color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HudPanel {
+                HudSectionHeader("Configurer l’action", registration?.title ?: node.action.kind.name)
+                Text(registry.summary(node.action), color = HudColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
             }
-            HorizontalDivider()
+            HorizontalDivider(color = HudColors.Grid)
             if (registration == null || !ActionEditorRegistry.hasProvider(registration.editorKey)) {
-                Text("Cette action existe dans les données mais n’est pas configurable ni exécutable dans cette version.")
+                HudValidationMessage("Cette action existe dans les données mais n’est pas configurable ni exécutable dans cette version.")
             } else {
                 ActionEditorRegistry.Render(registration.editorKey, node.action, onActionChange)
             }
@@ -572,9 +591,12 @@ private fun <T> ChoiceRow(
     onSelected: (T) -> Unit,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (label != null) Text(label, fontWeight = FontWeight.SemiBold)
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(choices) { choice ->
+        if (label != null) HudSectionHeader(label)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            choices.forEach { choice ->
                 FilterChip(
                     selected = choice == selected,
                     onClick = { onSelected(choice) },

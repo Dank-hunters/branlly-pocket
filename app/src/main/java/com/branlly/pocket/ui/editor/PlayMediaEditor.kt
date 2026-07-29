@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.branlly.pocket.ui.editor
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -36,23 +39,30 @@ import com.branlly.pocket.domain.model.PreferredMediaContentType
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.platform.android.InstalledApplication
 import com.branlly.pocket.platform.android.InstalledApplicationCatalog
+import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudSectionHeader
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 
 @Composable
-internal fun PlayMediaForm(action: ShortcutAction.PlayMedia, onChange: (ShortcutAction) -> Unit) {
+internal fun PlayMediaForm(
+    action: ShortcutAction.PlayMedia,
+    onChange: (ShortcutAction) -> Unit,
+) {
     val context = LocalContext.current
     val applications by produceState<List<InstalledApplication>>(emptyList(), context) {
         value = withContext(Dispatchers.IO) { InstalledApplicationCatalog(context.applicationContext).load() }
     }
     var appQuery by remember { mutableStateOf("") }
     var advanced by remember { mutableStateOf(false) }
-    val filtered = remember(applications, appQuery) {
-        applications.filter { appQuery.isBlank() || it.label.contains(appQuery, true) || it.packageName.contains(appQuery, true) }
-    }
+    val filtered =
+        remember(applications, appQuery) {
+            applications.filter { appQuery.isBlank() || it.label.contains(appQuery, true) || it.packageName.contains(appQuery, true) }
+        }
 
-    Text("Application multimédia", fontWeight = FontWeight.SemiBold)
+    HudSectionHeader("Application multimédia", "Application réelle")
     OutlinedTextField(
         value = appQuery,
         onValueChange = { appQuery = it.take(200) },
@@ -64,47 +74,72 @@ internal fun PlayMediaForm(action: ShortcutAction.PlayMedia, onChange: (Shortcut
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
             items(filtered, key = { "${it.packageName}/${it.activityName}" }) { application ->
                 Row(
-                    Modifier.fillMaxWidth().clickable {
-                        onChange(
-                            action.copy(
-                                targetAppLabel = application.label,
-                                targetPackage = application.packageName,
-                                activityName = application.activityName,
-                            ),
-                        )
-                        appQuery = ""
-                    }.padding(10.dp),
+                    Modifier
+                        .fillMaxWidth()
+                        .clickable {
+                            onChange(
+                                action.copy(
+                                    targetAppLabel = application.label,
+                                    targetPackage = application.packageName,
+                                    activityName = application.activityName,
+                                ),
+                            )
+                            appQuery = ""
+                        }.padding(10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Image(application.icon.toBitmap().asImageBitmap(), application.label, Modifier.size(36.dp))
                     Column(Modifier.padding(start = 10.dp)) {
                         Text(application.label, fontWeight = FontWeight.Medium)
-                        Text(application.packageName)
+                        Text(
+                            application.packageName,
+                            color = HudColors.TextSecondary,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        )
                     }
                 }
             }
         }
     }
     if (action.targetPackage.isNotBlank()) {
-        Text(action.targetAppLabel, fontWeight = FontWeight.Medium)
-        Text("Détails : ${action.targetPackage}")
+        HudPanel(borderColor = HudColors.Success.copy(alpha = 0.65f)) {
+            Text(action.targetAppLabel, color = HudColors.TextPrimary, fontWeight = FontWeight.Bold)
+            Text(
+                action.targetPackage,
+                color = HudColors.TextSecondary,
+                style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+            )
+        }
     } else {
-        Text("Choisissez une application.")
+        HudPanel(borderColor = HudColors.Warning.copy(alpha = 0.65f)) {
+            Text("Choisissez une application.", color = HudColors.Warning)
+        }
     }
     OutlinedTextField(
         value = action.searchQuery,
         onValueChange = { onChange(action.copy(searchQuery = it.take(500))) },
         modifier = Modifier.fillMaxWidth(),
         label = { Text("Recherche") },
-        supportingText = { if (action.searchQuery.isBlank() && action.mediaUri.isNullOrBlank()) Text("Une recherche ou une URI est obligatoire.") },
+        supportingText = {
+            if (action.searchQuery.isBlank() &&
+                action.mediaUri.isNullOrBlank()
+            ) {
+                Text("Une recherche ou une URI est obligatoire.")
+            }
+        },
+        isError = action.searchQuery.isBlank() && action.mediaUri.isNullOrBlank(),
         singleLine = true,
     )
 
-    Text(
-        if (advanced) "Masquer les options avancées" else "Afficher les options avancées",
-        modifier = Modifier.fillMaxWidth().clickable { advanced = !advanced }.padding(vertical = 8.dp),
-        fontWeight = FontWeight.SemiBold,
-    )
+    HudPanel(
+        modifier = Modifier.fillMaxWidth().clickable { advanced = !advanced },
+        borderColor = HudColors.Grid,
+    ) {
+        HudSectionHeader(
+            if (advanced) "Options avancées" else "Afficher les options avancées",
+            if (advanced) "Masquer" else "Ouvrir",
+        )
+    }
     if (advanced) {
         OutlinedTextField(
             value = action.mediaUri.orEmpty(),
@@ -120,15 +155,25 @@ internal fun PlayMediaForm(action: ShortcutAction.PlayMedia, onChange: (Shortcut
             label = { Text("Artiste facultatif") },
             singleLine = true,
         )
-        Text("Type préféré")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(PreferredMediaContentType.entries) { type ->
-                FilterChip(type == action.preferredContentType, { onChange(action.copy(preferredContentType = type)) }, { Text(type.label()) })
+        HudSectionHeader("Type préféré")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            PreferredMediaContentType.entries.forEach { type ->
+                FilterChip(
+                    type == action.preferredContentType,
+                    { onChange(action.copy(preferredContentType = type)) },
+                    { Text(type.label()) },
+                )
             }
         }
-        Text("Règle de sélection")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(MediaSelectionPolicy.entries) { policy ->
+        HudSectionHeader("Règle de sélection")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MediaSelectionPolicy.entries.forEach { policy ->
                 FilterChip(policy == action.selectionPolicy, { onChange(action.copy(selectionPolicy = policy)) }, { Text(policy.label()) })
             }
         }
@@ -140,39 +185,54 @@ internal fun PlayMediaForm(action: ShortcutAction.PlayMedia, onChange: (Shortcut
         )
         Toggle("Autoriser le fallback manuel", action.allowManualFallback) { onChange(action.copy(allowManualFallback = it)) }
         Toggle("Automatisation avancée — indisponible dans cette phase", false, enabled = false) {}
-        Text("Stratégie d’erreur")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(MediaErrorStrategy.entries) { strategy ->
-                FilterChip(strategy == action.errorStrategy, { onChange(action.copy(errorStrategy = strategy)) }, { Text(strategy.label()) })
+        HudSectionHeader("Stratégie d’erreur")
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MediaErrorStrategy.entries.forEach { strategy ->
+                FilterChip(
+                    strategy == action.errorStrategy,
+                    { onChange(action.copy(errorStrategy = strategy)) },
+                    { Text(strategy.label()) },
+                )
             }
         }
     }
 }
 
 @Composable
-private fun Toggle(label: String, checked: Boolean, enabled: Boolean = true, onChange: (Boolean) -> Unit) {
+private fun Toggle(
+    label: String,
+    checked: Boolean,
+    enabled: Boolean = true,
+    onChange: (Boolean) -> Unit,
+) {
     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
         Text(label, Modifier.weight(1f))
         Switch(checked, onCheckedChange = onChange, enabled = enabled)
     }
 }
 
-private fun PreferredMediaContentType.label() = when (this) {
-    PreferredMediaContentType.AUTO -> "Automatique"
-    PreferredMediaContentType.SONG -> "Morceau"
-    PreferredMediaContentType.VIDEO -> "Vidéo"
-    PreferredMediaContentType.PLAYLIST -> "Playlist"
-    PreferredMediaContentType.PODCAST -> "Podcast"
-}
+private fun PreferredMediaContentType.label() =
+    when (this) {
+        PreferredMediaContentType.AUTO -> "Automatique"
+        PreferredMediaContentType.SONG -> "Morceau"
+        PreferredMediaContentType.VIDEO -> "Vidéo"
+        PreferredMediaContentType.PLAYLIST -> "Playlist"
+        PreferredMediaContentType.PODCAST -> "Podcast"
+    }
 
-private fun MediaSelectionPolicy.label() = when (this) {
-    MediaSelectionPolicy.BEST_PLAYABLE_MATCH -> "Meilleure correspondance"
-    MediaSelectionPolicy.FIRST_PLAYABLE -> "Premier résultat jouable"
-    MediaSelectionPolicy.EXACT_MATCH -> "Correspondance exacte"
-    MediaSelectionPolicy.ASK_USER -> "Demander"
-}
+private fun MediaSelectionPolicy.label() =
+    when (this) {
+        MediaSelectionPolicy.BEST_PLAYABLE_MATCH -> "Meilleure correspondance"
+        MediaSelectionPolicy.FIRST_PLAYABLE -> "Premier résultat jouable"
+        MediaSelectionPolicy.EXACT_MATCH -> "Correspondance exacte"
+        MediaSelectionPolicy.ASK_USER -> "Demander"
+    }
 
-private fun MediaErrorStrategy.label() = when (this) {
-    MediaErrorStrategy.TRY_NEXT_STRATEGY -> "Essayer la suivante"
-    MediaErrorStrategy.STOP_ON_FIRST_FAILURE -> "Arrêter au premier échec"
-}
+private fun MediaErrorStrategy.label() =
+    when (this) {
+        MediaErrorStrategy.TRY_NEXT_STRATEGY -> "Essayer la suivante"
+        MediaErrorStrategy.STOP_ON_FIRST_FAILURE -> "Arrêter au premier échec"
+    }

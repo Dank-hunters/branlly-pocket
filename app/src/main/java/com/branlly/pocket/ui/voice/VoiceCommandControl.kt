@@ -17,6 +17,8 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -73,7 +75,7 @@ fun VoiceCommandControl(onCommand: (LocalVoiceCommand) -> Unit) {
     DisposableEffect(recognizer) { onDispose(recognizer::destroy) }
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
         Surface(
-            modifier = Modifier.size(42.dp),
+            modifier = Modifier.size(48.dp).semantics { contentDescription = "Commande vocale locale" },
             shape = androidx.compose.foundation.shape.CircleShape,
             color = MaterialTheme.colorScheme.primary,
             onClick = {
@@ -101,7 +103,7 @@ fun VoiceCommandControl(onCommand: (LocalVoiceCommand) -> Unit) {
             Text(
                 status,
                 style = MaterialTheme.typography.labelSmall,
-                maxLines = 1,
+                maxLines = 2,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }

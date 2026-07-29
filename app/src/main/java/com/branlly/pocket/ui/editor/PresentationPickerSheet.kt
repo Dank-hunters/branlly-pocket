@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.branlly.pocket.ui.editor
 
 import androidx.compose.foundation.background
@@ -5,14 +7,24 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.MaterialTheme
@@ -34,6 +46,10 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.branlly.pocket.domain.model.ShortcutAccentColor
+import com.branlly.pocket.ui.hud.HudColors
+import com.branlly.pocket.ui.hud.HudCutCornerShape
+import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudSectionHeader
 
 private data class IconChoice(
     val key: String,
@@ -75,13 +91,26 @@ fun PresentationPickerSheet(
             (category == "Tous" || it.category == category) &&
                 (query.isBlank() || it.label.contains(query.trim(), ignoreCase = true))
         }
-    ModalBottomSheet(onDismissRequest = onDismiss) {
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        containerColor = HudColors.BackgroundRaised,
+        contentColor = HudColors.TextPrimary,
+    ) {
         Column(
-            modifier = Modifier.fillMaxWidth().padding(start = 20.dp, end = 20.dp, bottom = 32.dp),
+            modifier =
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                    .navigationBarsPadding()
+                    .imePadding()
+                    .padding(start = 16.dp, end = 16.dp, bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(14.dp),
         ) {
-            Text("Personnaliser", style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.Bold)
-            Text("Icône et couleur du raccourci", color = MaterialTheme.colorScheme.onSurfaceVariant)
+            HudPanel {
+                HudSectionHeader("Personnaliser", "Présentation")
+                Text("Icône et couleur du raccourci", color = HudColors.TextSecondary)
+            }
             OutlinedTextField(
                 value = query,
                 onValueChange = { query = it },
@@ -89,35 +118,37 @@ fun PresentationPickerSheet(
                 singleLine = true,
                 label = { Text("Rechercher une icône") },
             )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                items(listOf("Tous") + iconChoices.map(IconChoice::category).distinct(), key = { it }) { item ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                (listOf("Tous") + iconChoices.map(IconChoice::category).distinct()).forEach { item ->
                     FilterChip(selected = category == item, onClick = { category = item }, label = { Text(item) })
                 }
             }
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                items(filtered, key = IconChoice::key) { choice ->
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                filtered.forEach { choice ->
                     Surface(
-                        modifier = Modifier.size(width = 84.dp, height = 74.dp).clickable { onChange(choice.key, accentColor) },
-                        shape = RoundedCornerShape(14.dp),
-                        color =
-                            if (choice.key ==
-                                iconKey
-                            ) {
-                                MaterialTheme.colorScheme.primaryContainer
-                            } else {
-                                MaterialTheme.colorScheme.surfaceVariant
-                            },
+                        modifier = Modifier.size(width = 104.dp, height = 82.dp).clickable { onChange(choice.key, accentColor) },
+                        shape = HudCutCornerShape,
+                        color = if (choice.key == iconKey) HudColors.Cyan.copy(alpha = 0.16f) else HudColors.Card,
                     ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 10.dp)) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.padding(vertical = 8.dp)) {
                             Text(choice.glyph, style = MaterialTheme.typography.titleLarge)
-                            Text(choice.label, style = MaterialTheme.typography.labelSmall, maxLines = 1, textAlign = TextAlign.Center)
+                            Text(choice.label, style = MaterialTheme.typography.labelSmall, maxLines = 2, textAlign = TextAlign.Center)
                         }
                     }
                 }
             }
-            Text("Couleur", style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                items(ShortcutAccentColor.entries, key = { it.name }) { color ->
+            HudSectionHeader("Couleur")
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                ShortcutAccentColor.entries.forEach { color ->
                     val selected = color == accentColor
                     Box(
                         modifier =
