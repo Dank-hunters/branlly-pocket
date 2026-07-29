@@ -1,14 +1,11 @@
 package com.branlly.pocket.platform.android
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.Service
 import android.content.Context
 import android.content.Intent
 import android.os.IBinder
 import android.util.Log
-import androidx.core.app.NotificationCompat
-import com.branlly.pocket.R
 import com.branlly.pocket.data.PersistentRoutineExecutionStateStore
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.execution.ContinuationIdentity
@@ -195,12 +192,9 @@ class RoutineExecutionService : Service() {
         title: String,
         text: String,
     ): android.app.Notification {
-        getSystemService(NotificationManager::class.java).createNotificationChannel(
-            NotificationChannel(CHANNEL, "Exécution Branlly", NotificationManager.IMPORTANCE_LOW),
-        )
-        return NotificationCompat
-            .Builder(this, CHANNEL)
-            .setSmallIcon(R.drawable.ic_launcher)
+        val channel = BranllyNotifications.ensureExecutionChannel(this)
+        return BranllyNotifications
+            .builder(this, channel)
             .setContentTitle(title)
             .setContentText(text)
             .setOngoing(true)
@@ -214,7 +208,6 @@ class RoutineExecutionService : Service() {
         const val ACTION_CANCEL = "com.branlly.pocket.action.CANCEL_ROUTINE"
         const val ACTION_EXPIRE = "com.branlly.pocket.action.EXPIRE_ROUTINE"
         const val ACTION_CANCEL_ACTIVE = "com.branlly.pocket.action.CANCEL_ACTIVE_ROUTINE"
-        private const val CHANNEL = "routine_execution"
         private const val NOTIFICATION_ID = 4102
         private const val EXTRA_SHORTCUT_ID = "shortcut_id"
         private const val EXTRA_EXECUTION_ID = "execution_id"

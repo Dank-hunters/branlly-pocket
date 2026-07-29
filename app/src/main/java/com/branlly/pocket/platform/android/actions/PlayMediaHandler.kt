@@ -1,6 +1,7 @@
 package com.branlly.pocket.platform.android.actions
 
 import android.net.Uri
+import android.provider.Settings
 import com.branlly.pocket.domain.execution.ActionExecutionContext
 import com.branlly.pocket.domain.execution.ActionHandler
 import com.branlly.pocket.domain.execution.ActionResult
@@ -67,7 +68,10 @@ class PlayMediaHandler(
         )
         if (!capabilities.packageInstalled) return ActionResult.Failed("L’application multimédia n’est plus installée.")
         if (!capabilities.notificationListenerAuthorized) {
-            return ActionResult.PermissionRequired("Autorisez l’accès aux notifications pour confirmer STATE_PLAYING.")
+            return ActionResult.PermissionRequired(
+                reason = "Autorisez le contrôle de lecture pour confirmer STATE_PLAYING.",
+                settingsAction = Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
+            )
         }
         if (!capabilities.notificationListenerAvailable) {
             return ActionResult.Failed("Le NotificationListener multimédia est indisponible.", recoverable = true)

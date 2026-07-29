@@ -1,6 +1,7 @@
 package com.branlly.pocket.domain
 
 import android.content.Intent
+import android.provider.Settings
 import com.branlly.pocket.domain.execution.ActionExecutionContext
 import com.branlly.pocket.domain.execution.ActionResult
 import com.branlly.pocket.domain.execution.ActionValidationContext
@@ -54,6 +55,31 @@ class PlayMediaHandlerTest {
 
             assertEquals(ActionResult.Completed, result)
             assertSame(action, configuredAction)
+        }
+
+    @Test
+    fun `missing media control access returns settings without creating V3 coordinator`() =
+        runBlocking {
+            var coordinatorCreated = false
+            val handler =
+                PlayMediaHandler(
+                    capabilityResolver = CapabilityResolver { capabilities().copy(notificationListenerAuthorized = false) },
+                    coordinatorFactory = {
+                        coordinatorCreated = true
+                        coordinator()
+                    },
+                )
+
+            val result = handler.execute(action(), context())
+
+            assertEquals(
+                ActionResult.PermissionRequired(
+                    reason = "Autorisez le contrôle de lecture pour confirmer STATE_PLAYING.",
+                    settingsAction = Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS,
+                ),
+                result,
+            )
+            assertTrue(!coordinatorCreated)
         }
 
     private fun handler() =

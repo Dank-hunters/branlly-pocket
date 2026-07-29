@@ -1,13 +1,10 @@
 package com.branlly.pocket.platform.android
 
-import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
-import androidx.core.app.NotificationCompat
-import com.branlly.pocket.R
 import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.Trigger
@@ -53,7 +50,7 @@ class ContextSuggestionReceiver : BroadcastReceiver() {
         name: String,
     ) {
         val manager = context.getSystemService(NotificationManager::class.java)
-        manager.createNotificationChannel(NotificationChannel(CHANNEL, "Suggestions Branlly", NotificationManager.IMPORTANCE_DEFAULT))
+        val channel = BranllyNotifications.ensureSuggestionChannel(context)
         val intent = Intent(context, PinnedRoutineReceiver::class.java).putExtra(PinnedRoutineShortcut.EXTRA_SHORTCUT_ID, id)
         val pendingIntent =
             PendingIntent.getBroadcast(
@@ -64,18 +61,13 @@ class ContextSuggestionReceiver : BroadcastReceiver() {
             )
         manager.notify(
             id.hashCode(),
-            NotificationCompat
-                .Builder(context, CHANNEL)
-                .setSmallIcon(R.drawable.ic_launcher)
+            BranllyNotifications
+                .builder(context, channel)
                 .setContentTitle("Routine suggérée")
                 .setContentText("Chargeur détecté — lancer $name ?")
                 .setAutoCancel(true)
                 .setContentIntent(pendingIntent)
                 .build(),
         )
-    }
-
-    private companion object {
-        const val CHANNEL = "context_suggestions"
     }
 }
