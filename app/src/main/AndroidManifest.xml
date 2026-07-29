@@ -65,6 +65,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".platform.android.TestNotificationActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".platform.android.ContextSuggestionReceiver"
             android:exported="false">
             <intent-filter>

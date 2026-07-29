@@ -65,6 +65,7 @@ import com.branlly.pocket.ui.hud.HudCutCornerShape
 import com.branlly.pocket.ui.hud.HudIconContainer
 import com.branlly.pocket.ui.hud.HudPanel
 import com.branlly.pocket.ui.hud.HudPrimaryButton
+import com.branlly.pocket.ui.hud.HudSecondaryButton
 import com.branlly.pocket.ui.hud.HudSpacing
 import com.branlly.pocket.ui.hud.HudStatusBadge
 import com.branlly.pocket.ui.hud.StatusRing
@@ -75,6 +76,8 @@ import com.branlly.pocket.ui.voice.VoiceCommandControl
 internal fun HudHomeScreen(
     state: EditorUiState,
     viewModel: EditorViewModel,
+    missingCapabilityWarning: String?,
+    onOpenSetup: () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
@@ -147,6 +150,25 @@ internal fun HudHomeScreen(
                                 style = MaterialTheme.typography.bodySmall,
                             )
                         }
+                    }
+                }
+            }
+            missingCapabilityWarning?.let { missing ->
+                item {
+                    HudPanel(modifier = Modifier.fillMaxWidth(), borderColor = HudColors.Warning) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            HudStatusBadge("À corriger", HudColors.Warning)
+                            Spacer(Modifier.width(10.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text("Autorisation retirée", color = HudColors.TextPrimary, fontWeight = FontWeight.Bold)
+                                Text(missing, color = HudColors.TextSecondary, style = MaterialTheme.typography.bodySmall)
+                            }
+                        }
+                        HudSecondaryButton(
+                            text = "Configuration et autorisations",
+                            onClick = onOpenSetup,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
                     }
                 }
             }
@@ -270,6 +292,13 @@ internal fun HudHomeScreen(
                 HudPrimaryButton(
                     text = if (selected == null) "Créer une routine" else "Lancer la routine",
                     onClick = launchSelected,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+            item {
+                HudSecondaryButton(
+                    text = "Configuration et autorisations",
+                    onClick = onOpenSetup,
                     modifier = Modifier.fillMaxWidth(),
                 )
             }

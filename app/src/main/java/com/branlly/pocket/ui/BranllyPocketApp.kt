@@ -95,6 +95,9 @@ import com.branlly.pocket.domain.voice.LocalVoiceCommand
 import com.branlly.pocket.platform.android.ShortcutExecutor
 import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
+import com.branlly.pocket.platform.android.setup.InitialSetupDecision
+import com.branlly.pocket.platform.android.setup.PermissionCapabilityResolver
+import com.branlly.pocket.platform.android.setup.SetupStateStore
 import com.branlly.pocket.ui.editor.ActionConfigurationSheet
 import com.branlly.pocket.ui.editor.EditorUiState
 import com.branlly.pocket.ui.editor.EditorViewModel
@@ -115,6 +118,8 @@ import com.branlly.pocket.ui.hud.HudStatusBadge
 import com.branlly.pocket.ui.hud.HudSurfaceTheme
 import com.branlly.pocket.ui.hud.HudValidationMessage
 import com.branlly.pocket.ui.hud.isHudCompact
+import com.branlly.pocket.ui.setup.InitialSetupScreen
+import com.branlly.pocket.ui.setup.title
 import com.branlly.pocket.ui.voice.VoiceCommandControl
 
 @Composable
@@ -122,18 +127,91 @@ fun BranllyPocketApp(
     sharedMediaLink: String? = null,
     viewModel: EditorViewModel = viewModel(),
 ) {
+    val context = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
+    val setupStore = remember(context) { SetupStateStore(context.applicationContext) }
+    val capabilityResolver = remember(context) { PermissionCapabilityResolver(context.applicationContext) }
+    var setupSnapshot by remember { mutableStateOf(capabilityResolver.resolve()) }
+    var setupCompleted by remember { mutableStateOf(setupStore.isCompleted()) }
+    var limitedModeForCurrentLaunch by remember { mutableStateOf(false) }
+    var setupOpenedFromSettings by remember { mutableStateOf(false) }
+
+    fun refreshCapabilities() {
+        setupSnapshot = capabilityResolver.resolve()
+    }
+
+    DisposableEffect(lifecycleOwner, capabilityResolver) {
+        val observer =
+            LifecycleEventObserver { _, event ->
+                if (event == Lifecycle.Event.ON_RESUME) refreshCapabilities()
+            }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
     LaunchedEffect(sharedMediaLink) {
         sharedMediaLink?.let(viewModel::receiveSharedMediaLink)
     }
     val state by viewModel.state.collectAsState()
+    val showSetup =
+        InitialSetupDecision.shouldShowAssistant(
+            setupCompleted = setupCompleted,
+            limitedModeForCurrentLaunch = limitedModeForCurrentLaunch,
+            openedFromSettings = setupOpenedFromSettings,
+        )
+    val revokedCapabilities = InitialSetupDecision.revokedCapabilities(setupCompleted, setupSnapshot)
     HudSurfaceTheme {
-        when (state.screen) {
-            Screen.HOME -> HudHomeScreen(state, viewModel)
-            Screen.START -> StartScreen(viewModel)
-            Screen.GUIDED_TRIGGER -> TriggerScreen(viewModel)
-            Screen.ACTION_CHOICE -> ActionChoiceScreen(viewModel)
-            Screen.BLUEPRINTS -> BlueprintScreen(viewModel)
-            Screen.EDITOR -> EditorScreen(state, viewModel)
+        if (showSetup) {
+            InitialSetupScreen(
+                snapshot = setupSnapshot,
+                store = setupStore,
+                openedFromSettings = setupOpenedFromSettings,
+                onRefresh = ::refreshCapabilities,
+                onComplete = {
+                    setupStore.markCompleted()
+                    setupCompleted = true
+                    setupOpenedFromSettings = false
+                    limitedModeForCurrentLaunch = false
+                    refreshCapabilities()
+                },
+                onContinueLimited = {
+                    setupStore.markIncomplete()
+                    setupCompleted = false
+                    setupOpenedFromSettings = false
+                    limitedModeForCurrentLaunch = true
+                },
+                onClose = { setupOpenedFromSettings = false },
+            )
+        } else {
+            when (state.screen) {
+                Screen.HOME -> {
+                    HudHomeScreen(
+                        state = state,
+                        viewModel = viewModel,
+                        missingCapabilityWarning = revokedCapabilities.joinToString { it.title() }.ifBlank { null },
+                        onOpenSetup = { setupOpenedFromSettings = true },
+                    )
+                }
+
+                Screen.START -> {
+                    StartScreen(viewModel)
+                }
+
+                Screen.GUIDED_TRIGGER -> {
+                    TriggerScreen(viewModel)
+                }
+
+                Screen.ACTION_CHOICE -> {
+                    ActionChoiceScreen(viewModel)
+                }
+
+                Screen.BLUEPRINTS -> {
+                    BlueprintScreen(viewModel)
+                }
+
+                Screen.EDITOR -> {
+                    EditorScreen(state, viewModel)
+                }
+            }
         }
     }
 }
