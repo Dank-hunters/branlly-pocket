@@ -1,9 +1,12 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.branlly.pocket.ui.editor
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
@@ -153,8 +156,11 @@ internal fun PlayMediaForm(
             singleLine = true,
         )
         HudSectionHeader("Type préféré")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(PreferredMediaContentType.entries) { type ->
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            PreferredMediaContentType.entries.forEach { type ->
                 FilterChip(
                     type == action.preferredContentType,
                     { onChange(action.copy(preferredContentType = type)) },
@@ -163,8 +169,11 @@ internal fun PlayMediaForm(
             }
         }
         HudSectionHeader("Règle de sélection")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(MediaSelectionPolicy.entries) { policy ->
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MediaSelectionPolicy.entries.forEach { policy ->
                 FilterChip(policy == action.selectionPolicy, { onChange(action.copy(selectionPolicy = policy)) }, { Text(policy.label()) })
             }
         }
@@ -177,8 +186,11 @@ internal fun PlayMediaForm(
         Toggle("Autoriser le fallback manuel", action.allowManualFallback) { onChange(action.copy(allowManualFallback = it)) }
         Toggle("Automatisation avancée — indisponible dans cette phase", false, enabled = false) {}
         HudSectionHeader("Stratégie d’erreur")
-        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            items(MediaErrorStrategy.entries) { strategy ->
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            MediaErrorStrategy.entries.forEach { strategy ->
                 FilterChip(
                     strategy == action.errorStrategy,
                     { onChange(action.copy(errorStrategy = strategy)) },

@@ -1,6 +1,5 @@
 package com.branlly.pocket.ui
 
-import android.app.Activity
 import android.content.Context
 import android.content.Intent
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -10,17 +9,21 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.AlertDialog
@@ -31,7 +34,6 @@ import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -45,7 +47,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.view.WindowInsetsControllerCompat
 import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.Trigger
@@ -67,6 +68,7 @@ import com.branlly.pocket.ui.hud.HudPrimaryButton
 import com.branlly.pocket.ui.hud.HudSpacing
 import com.branlly.pocket.ui.hud.HudStatusBadge
 import com.branlly.pocket.ui.hud.StatusRing
+import com.branlly.pocket.ui.hud.isHudCompact
 import com.branlly.pocket.ui.voice.VoiceCommandControl
 
 @Composable
@@ -75,18 +77,6 @@ internal fun HudHomeScreen(
     viewModel: EditorViewModel,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
-    val activity = context as? Activity
-    DisposableEffect(activity) {
-        val controller = activity?.window?.let { WindowInsetsControllerCompat(it, it.decorView) }
-        val previousLightStatusBars = controller?.isAppearanceLightStatusBars
-        val previousLightNavigationBars = controller?.isAppearanceLightNavigationBars
-        controller?.isAppearanceLightStatusBars = false
-        controller?.isAppearanceLightNavigationBars = false
-        onDispose {
-            previousLightStatusBars?.let { controller?.isAppearanceLightStatusBars = it }
-            previousLightNavigationBars?.let { controller?.isAppearanceLightNavigationBars = it }
-        }
-    }
     val actionRegistry = remember(context) { AndroidActionRegistry.create(context.applicationContext) }
     val selected = state.savedShortcuts.firstOrNull()
     var menuExpanded by remember { mutableStateOf(false) }
@@ -119,7 +109,6 @@ internal fun HudHomeScreen(
                 onHome = {},
                 onCreate = viewModel::showStart,
                 onImport = importAction,
-                modifier = Modifier.navigationBarsPadding(),
             )
         },
     ) { scaffoldPadding ->
@@ -128,7 +117,7 @@ internal fun HudHomeScreen(
                 Modifier
                     .fillMaxSize()
                     .background(HudColors.Background)
-                    .statusBarsPadding()
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
                     .padding(scaffoldPadding),
             contentPadding =
                 androidx.compose.foundation.layout.PaddingValues(
@@ -151,43 +140,59 @@ internal fun HudHomeScreen(
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             HudStatusBadge(if (hasError) "ALERTE" else "INFO", if (hasError) HudColors.Error else HudColors.Cyan)
                             Spacer(Modifier.width(10.dp))
-                            Text(message, color = HudColors.TextPrimary, style = MaterialTheme.typography.bodySmall)
+                            Text(
+                                message,
+                                modifier = Modifier.weight(1f),
+                                color = HudColors.TextPrimary,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
                         }
                     }
                 }
             }
             item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    Box(
-                        modifier = Modifier.weight(1.08f),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        StatusRing(
-                            label = if (hasError) "ALERTE" else "PRÊT",
-                            detail = selected?.let { "${it.nodes.count { node -> node.enabled }} ACTIONS" } ?: "AUCUNE ROUTINE",
-                            color = ringColor,
-                            modifier = Modifier.clickable(onClick = launchSelected),
-                        )
-                    }
-                    Column(
-                        modifier = Modifier.weight(0.92f),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        HudSystemCard(
-                            "CONTRÔLE LECTURE",
-                            if (mediaAuthorized) "AUTORISÉ" else "REQUIS",
-                            if (mediaAuthorized) HudColors.Success else HudColors.Warning,
-                        )
-                        HudSystemCard(
-                            "SERVICE MÉDIA",
-                            if (listenerConnected) "ACTIF" else "EN VEILLE",
-                            if (listenerConnected) HudColors.Success else HudColors.TextSecondary,
-                        )
-                        HudSystemCard("ROUTINES", state.savedShortcuts.size.toString(), HudColors.Cyan)
+                BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+                    val compact = isHudCompact(maxWidth)
+                    if (compact) {
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            StatusRing(
+                                label = if (hasError) "ALERTE" else "PRÊT",
+                                detail = selected?.let { "${it.nodes.count { node -> node.enabled }} ACTIONS" } ?: "AUCUNE ROUTINE",
+                                color = ringColor,
+                                modifier = Modifier.clickable(onClick = launchSelected),
+                            )
+                            HudStatusCards(
+                                mediaAuthorized = mediaAuthorized,
+                                listenerConnected = listenerConnected,
+                                routineCount = state.savedShortcuts.size,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                        }
+                    } else {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Box(modifier = Modifier.weight(1.08f), contentAlignment = Alignment.Center) {
+                                StatusRing(
+                                    label = if (hasError) "ALERTE" else "PRÊT",
+                                    detail = selected?.let { "${it.nodes.count { node -> node.enabled }} ACTIONS" } ?: "AUCUNE ROUTINE",
+                                    color = ringColor,
+                                    modifier = Modifier.clickable(onClick = launchSelected),
+                                )
+                            }
+                            HudStatusCards(
+                                mediaAuthorized = mediaAuthorized,
+                                listenerConnected = listenerConnected,
+                                routineCount = state.savedShortcuts.size,
+                                modifier = Modifier.weight(0.92f),
+                            )
+                        }
                     }
                 }
             }
@@ -308,40 +313,86 @@ private fun HudHeader(
     onImport: () -> Unit,
     onVoiceCommand: (LocalVoiceCommand) -> Unit,
 ) {
-    Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        HudIconContainer("B", modifier = Modifier.size(46.dp), accent = HudColors.CyanBright)
-        Column(Modifier.weight(1f).padding(start = 11.dp, end = 8.dp)) {
-            Text(
-                "BRANLLY POCKET",
-                color = HudColors.TextPrimary,
-                fontFamily = FontFamily.Monospace,
-                fontWeight = FontWeight.ExtraBold,
-                fontSize = 20.sp,
-                letterSpacing = 0.9.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            Spacer(Modifier.height(1.dp))
-            Text(
-                "ROUTINES LOCALES • EXÉCUTION DIRECTE",
-                color = HudColors.TextSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 8.sp,
-                letterSpacing = 0.45.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-        }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.clickable(onClick = onImport)) {
-                HudIconContainer("⇩", modifier = Modifier.size(40.dp), accent = HudColors.TextSecondary)
+    BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+        if (isHudCompact(maxWidth)) {
+            Column(modifier = Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    HudIconContainer("B", modifier = Modifier.size(46.dp), accent = HudColors.CyanBright)
+                    HudBrandText(Modifier.weight(1f).padding(start = 11.dp))
+                }
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    HudHeaderActions(onImport, onVoiceCommand)
+                }
             }
-            Spacer(Modifier.width(7.dp))
-            VoiceCommandControl(onCommand = onVoiceCommand)
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                HudIconContainer("B", modifier = Modifier.size(46.dp), accent = HudColors.CyanBright)
+                HudBrandText(Modifier.weight(1f).padding(start = 11.dp, end = 8.dp))
+                HudHeaderActions(onImport, onVoiceCommand)
+            }
         }
+    }
+}
+
+@Composable
+private fun HudBrandText(modifier: Modifier = Modifier) {
+    Column(modifier) {
+        Text(
+            "BRANLLY POCKET",
+            color = HudColors.TextPrimary,
+            fontFamily = FontFamily.Monospace,
+            fontWeight = FontWeight.ExtraBold,
+            fontSize = 20.sp,
+            letterSpacing = 0.9.sp,
+            maxLines = 2,
+        )
+        Spacer(Modifier.height(1.dp))
+        Text(
+            "ROUTINES LOCALES • EXÉCUTION DIRECTE",
+            color = HudColors.TextSecondary,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 8.sp,
+            letterSpacing = 0.45.sp,
+        )
+    }
+}
+
+@Composable
+private fun HudHeaderActions(
+    onImport: () -> Unit,
+    onVoiceCommand: (LocalVoiceCommand) -> Unit,
+) {
+    Row(verticalAlignment = Alignment.CenterVertically) {
+        Box(Modifier.clickable(onClick = onImport)) {
+            HudIconContainer("⇩", modifier = Modifier.size(48.dp), accent = HudColors.TextSecondary)
+        }
+        Spacer(Modifier.width(7.dp))
+        VoiceCommandControl(onCommand = onVoiceCommand)
+    }
+}
+
+@Composable
+private fun HudStatusCards(
+    mediaAuthorized: Boolean,
+    listenerConnected: Boolean,
+    routineCount: Int,
+    modifier: Modifier = Modifier,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        HudSystemCard(
+            "CONTRÔLE LECTURE",
+            if (mediaAuthorized) "AUTORISÉ" else "REQUIS",
+            if (mediaAuthorized) HudColors.Success else HudColors.Warning,
+        )
+        HudSystemCard(
+            "SERVICE MÉDIA",
+            if (listenerConnected) "ACTIF" else "EN VEILLE",
+            if (listenerConnected) HudColors.Success else HudColors.TextSecondary,
+        )
+        HudSystemCard("ROUTINES", routineCount.toString(), HudColors.Cyan)
     }
 }
 
@@ -360,8 +411,6 @@ private fun HudSystemCard(
                 fontFamily = FontFamily.Monospace,
                 fontSize = 8.sp,
                 letterSpacing = 0.45.sp,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
             )
             Box(Modifier.size(5.dp).background(color, CircleShape))
         }
@@ -373,8 +422,6 @@ private fun HudSystemCard(
             fontWeight = FontWeight.Bold,
             fontSize = 10.sp,
             letterSpacing = 0.4.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
         )
     }
 }

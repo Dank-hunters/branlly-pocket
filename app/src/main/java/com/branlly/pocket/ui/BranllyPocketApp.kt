@@ -1,3 +1,5 @@
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+
 package com.branlly.pocket.ui
 
 import android.content.Context
@@ -11,16 +13,26 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -56,6 +68,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -101,6 +114,7 @@ import com.branlly.pocket.ui.hud.HudSpacing
 import com.branlly.pocket.ui.hud.HudStatusBadge
 import com.branlly.pocket.ui.hud.HudSurfaceTheme
 import com.branlly.pocket.ui.hud.HudValidationMessage
+import com.branlly.pocket.ui.hud.isHudCompact
 import com.branlly.pocket.ui.voice.VoiceCommandControl
 
 @Composable
@@ -112,13 +126,15 @@ fun BranllyPocketApp(
         sharedMediaLink?.let(viewModel::receiveSharedMediaLink)
     }
     val state by viewModel.state.collectAsState()
-    when (state.screen) {
-        Screen.HOME -> HudHomeScreen(state, viewModel)
-        Screen.START -> HudSurfaceTheme { StartScreen(viewModel) }
-        Screen.GUIDED_TRIGGER -> HudSurfaceTheme { TriggerScreen(viewModel) }
-        Screen.ACTION_CHOICE -> HudSurfaceTheme { ActionChoiceScreen(viewModel) }
-        Screen.BLUEPRINTS -> HudSurfaceTheme { BlueprintScreen(viewModel) }
-        Screen.EDITOR -> HudSurfaceTheme { EditorScreen(state, viewModel) }
+    HudSurfaceTheme {
+        when (state.screen) {
+            Screen.HOME -> HudHomeScreen(state, viewModel)
+            Screen.START -> StartScreen(viewModel)
+            Screen.GUIDED_TRIGGER -> TriggerScreen(viewModel)
+            Screen.ACTION_CHOICE -> ActionChoiceScreen(viewModel)
+            Screen.BLUEPRINTS -> BlueprintScreen(viewModel)
+            Screen.EDITOR -> EditorScreen(state, viewModel)
+        }
     }
 }
 
@@ -490,10 +506,27 @@ private fun StartScreen(viewModel: EditorViewModel) {
         )
         MethodCard("", "Utiliser un blueprint", "Partir d’un modèle prêt à personnaliser.", false, viewModel::showBlueprints)
         MethodCard("AVANCÉ", "Création libre", "Construire directement une séquence visuelle.", false, viewModel::startFree)
-        VoiceCommandControl { command ->
-            when (command) {
-                LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
-                LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+        HudPanel(borderColor = HudColors.Grid) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(
+                        "COMMANDE VOCALE LOCALE",
+                        color = HudColors.CyanBright,
+                        style = MaterialTheme.typography.labelLarge,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Text(
+                        "Lancer rapidement un parcours navigation ou musique.",
+                        color = HudColors.TextSecondary,
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                VoiceCommandControl { command ->
+                    when (command) {
+                        LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
+                        LocalVoiceCommand.MUSIC -> viewModel.useMusicBlueprint()
+                    }
+                }
             }
         }
         PrivacyNotice()
@@ -629,40 +662,20 @@ private fun EditorScreen(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val density = LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
     Scaffold(
         modifier = Modifier.fillMaxSize(),
         containerColor = HudColors.Background,
         bottomBar = {
-            Column(
-                modifier =
-                    Modifier
-                        .fillMaxWidth()
-                        .background(HudColors.BackgroundRaised)
-                        .border(1.dp, HudColors.Grid, HudCutCornerShape)
-                        .navigationBarsPadding()
-                        .padding(horizontal = HudSpacing.Screen, vertical = 9.dp),
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                HudSectionHeader(
-                    title = "Validation",
-                    detail = if (validationIssues.isEmpty()) "Routine prête" else "${validationIssues.size} point(s) à corriger",
+            if (!imeVisible) {
+                HudEditorActionBar(
+                    validationCount = validationIssues.size,
+                    testEnabled = validationIssues.isEmpty() && (!requiresMediaAccess || mediaAccessEnabled),
+                    saveEnabled = validationIssues.isEmpty(),
+                    onTest = { testShortcut(context, draft) },
+                    onSave = viewModel::saveDraft,
                 )
-                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
-                    HudSecondaryButton(
-                        text = "Tester",
-                        onClick = { testShortcut(context, draft) },
-                        modifier = Modifier.weight(1f),
-                        enabled = validationIssues.isEmpty() && (!requiresMediaAccess || mediaAccessEnabled),
-                        height = 54.dp,
-                    )
-                    HudPrimaryButton(
-                        text = "Enregistrer",
-                        onClick = viewModel::saveDraft,
-                        modifier = Modifier.weight(1f),
-                        enabled = validationIssues.isEmpty(),
-                        labelFontSize = 13.sp,
-                    )
-                }
             }
         },
     ) { scaffoldPadding ->
@@ -672,7 +685,8 @@ private fun EditorScreen(
                     .fillMaxSize()
                     .background(HudColors.Background)
                     .padding(scaffoldPadding)
-                    .statusBarsPadding(),
+                    .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal))
+                    .imePadding(),
             contentPadding =
                 androidx.compose.foundation.layout
                     .PaddingValues(start = HudSpacing.Screen, end = HudSpacing.Screen, top = 8.dp, bottom = 20.dp),
@@ -809,6 +823,62 @@ private fun EditorScreen(
 }
 
 @Composable
+private fun HudEditorActionBar(
+    validationCount: Int,
+    testEnabled: Boolean,
+    saveEnabled: Boolean,
+    onTest: () -> Unit,
+    onSave: () -> Unit,
+) {
+    BoxWithConstraints(
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
+                .background(HudColors.BackgroundRaised)
+                .border(1.dp, HudColors.Grid, HudCutCornerShape)
+                .padding(horizontal = HudSpacing.Screen, vertical = 9.dp),
+    ) {
+        val stackButtons = maxWidth < HudSpacing.NarrowWidth
+        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+            HudSectionHeader(
+                title = "Validation",
+                detail = if (validationCount == 0) "Routine prête" else "$validationCount point(s) à corriger",
+            )
+            if (stackButtons) {
+                HudSecondaryButton("Tester", onTest, Modifier.fillMaxWidth(), testEnabled, height = 50.dp)
+                HudPrimaryButton(
+                    "Enregistrer",
+                    onSave,
+                    Modifier.fillMaxWidth(),
+                    saveEnabled,
+                    labelFontSize = 13.sp,
+                    showLeadingGlyph = false,
+                )
+            } else {
+                Row(horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                    HudSecondaryButton(
+                        text = "Tester",
+                        onClick = onTest,
+                        modifier = Modifier.weight(1f),
+                        enabled = testEnabled,
+                        height = 54.dp,
+                    )
+                    HudPrimaryButton(
+                        text = "Enregistrer",
+                        onClick = onSave,
+                        modifier = Modifier.weight(1f),
+                        enabled = saveEnabled,
+                        labelFontSize = 13.sp,
+                        showLeadingGlyph = false,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
 private fun TriggerCard(
     draft: ShortcutDefinition,
     onClick: () -> Unit,
@@ -875,63 +945,122 @@ private fun ActionCard(
                 .clickable(onClick = onEdit),
         borderColor = if (validationMessages.isNotEmpty()) HudColors.Error.copy(alpha = 0.7f) else HudColors.CyanMuted,
     ) {
+        BoxWithConstraints(modifier = Modifier.fillMaxWidth()) {
+            val compact = isHudCompact(maxWidth)
+            Column(verticalArrangement = Arrangement.spacedBy(HudSpacing.Tight)) {
+                ActionCardIdentity(
+                    index = index,
+                    title = registration?.title ?: node.action.kind.name,
+                    summary = actionRegistry.summary(node.action),
+                    glyph = actionGlyph(node.action.kind),
+                    statusColor = statusColor,
+                    enabled = node.enabled,
+                    compact = compact,
+                    onToggle = onToggle,
+                )
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    HudStatusBadge(statusText, statusColor)
+                    TextButton(onClick = onDelay) {
+                        Text(
+                            if (node.delayBeforeMillis == 0L) "DÉLAI : AUCUN" else "DÉLAI : ${node.delayBeforeMillis / 1_000} S",
+                            color = HudColors.TextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                    TextButton(onClick = onContinueOnError) {
+                        Text(
+                            if (node.errorStrategy is com.branlly.pocket.domain.model.ErrorStrategy.Stop) {
+                                "ARRÊT SI ÉCHEC"
+                            } else {
+                                "CONTINUER SI ÉCHEC"
+                            },
+                            color = HudColors.TextSecondary,
+                            style = MaterialTheme.typography.labelSmall,
+                        )
+                    }
+                }
+                validationMessages.forEach { message -> HudValidationMessage(message) }
+                if (compact) {
+                    FlowRow(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(7.dp),
+                        verticalArrangement = Arrangement.spacedBy(7.dp),
+                    ) {
+                        HudSecondaryButton("↑", onMoveUp, Modifier.widthIn(min = 56.dp), canMoveUp)
+                        HudSecondaryButton("↓", onMoveDown, Modifier.widthIn(min = 56.dp), canMoveDown)
+                        HudSecondaryButton("Modifier", onEdit, Modifier.widthIn(min = 132.dp))
+                    }
+                } else {
+                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
+                        HudSecondaryButton("↑", onMoveUp, Modifier.weight(0.35f), canMoveUp)
+                        HudSecondaryButton("↓", onMoveDown, Modifier.weight(0.35f), canMoveDown)
+                        HudSecondaryButton("Modifier", onEdit, Modifier.weight(1.3f))
+                    }
+                }
+                FlowRow(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalArrangement = Arrangement.spacedBy(2.dp),
+                ) {
+                    TextButton(onClick = onTest, enabled = testEnabled) { Text("Tester") }
+                    TextButton(onClick = onDuplicate) { Text("Dupliquer") }
+                    TextButton(onClick = onDelete) { Text("Supprimer", color = HudColors.Error) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ActionCardIdentity(
+    index: Int,
+    title: String,
+    summary: String,
+    glyph: String,
+    statusColor: androidx.compose.ui.graphics.Color,
+    enabled: Boolean,
+    compact: Boolean,
+    onToggle: () -> Unit,
+) {
+    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            Text(
-                "⠿",
-                color = HudColors.TextSecondary,
-                fontFamily = FontFamily.Monospace,
-                fontSize = 18.sp,
-            )
+            Text("⠿", color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 18.sp)
             Spacer(Modifier.size(6.dp))
             HudStatusBadge(index.toString(), HudColors.Cyan)
             Spacer(Modifier.size(8.dp))
-            HudIconContainer(actionGlyph(node.action.kind), Modifier.size(40.dp), statusColor)
+            HudIconContainer(glyph, Modifier.size(40.dp), statusColor)
             Column(Modifier.weight(1f).padding(start = 10.dp, end = 6.dp)) {
                 Text(
-                    registration?.title ?: node.action.kind.name,
+                    title,
                     color = HudColors.TextPrimary,
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
-                    maxLines = 1,
+                    maxLines = if (compact) 3 else 2,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    actionRegistry.summary(node.action),
+                    summary,
                     color = HudColors.TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
-                    maxLines = 2,
+                    maxLines = if (compact) 4 else 3,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
-            Switch(checked = node.enabled, onCheckedChange = { onToggle() })
+            if (!compact) Switch(checked = enabled, onCheckedChange = { onToggle() })
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
-            HudStatusBadge(statusText, statusColor)
-            TextButton(onClick = onDelay) {
+        if (compact) {
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    if (node.delayBeforeMillis == 0L) "DÉLAI : AUCUN" else "DÉLAI : ${node.delayBeforeMillis / 1_000} S",
-                    color = HudColors.TextSecondary,
+                    if (enabled) "ACTION ACTIVE" else "ACTION DÉSACTIVÉE",
+                    modifier = Modifier.weight(1f),
+                    color = if (enabled) HudColors.Success else HudColors.Disabled,
                     style = MaterialTheme.typography.labelSmall,
                 )
+                Switch(checked = enabled, onCheckedChange = { onToggle() })
             }
-            TextButton(onClick = onContinueOnError) {
-                Text(
-                    if (node.errorStrategy is com.branlly.pocket.domain.model.ErrorStrategy.Stop) "ARRÊT SI ÉCHEC" else "CONTINUER SI ÉCHEC",
-                    color = HudColors.TextSecondary,
-                    style = MaterialTheme.typography.labelSmall,
-                )
-            }
-        }
-        validationMessages.forEach { message -> HudValidationMessage(message) }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(7.dp)) {
-            HudSecondaryButton("↑", onMoveUp, Modifier.weight(0.35f), canMoveUp)
-            HudSecondaryButton("↓", onMoveDown, Modifier.weight(0.35f), canMoveDown)
-            HudSecondaryButton("Modifier", onEdit, Modifier.weight(1.3f))
-        }
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-            TextButton(onClick = onTest, enabled = testEnabled) { Text("Tester") }
-            TextButton(onClick = onDuplicate) { Text("Dupliquer") }
-            TextButton(onClick = onDelete) { Text("Supprimer", color = HudColors.Error) }
         }
     }
 }
@@ -951,7 +1080,11 @@ private fun ActionLibrary(
             )
         }
     LazyColumn(
-        modifier = Modifier.fillMaxWidth().background(HudColors.BackgroundRaised),
+        modifier =
+            Modifier
+                .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Horizontal))
+                .background(HudColors.BackgroundRaised),
         contentPadding =
             androidx.compose.foundation.layout
                 .PaddingValues(start = HudSpacing.Screen, end = HudSpacing.Screen, bottom = 32.dp),
@@ -977,15 +1110,12 @@ private fun ActionLibrary(
                                     descriptor.title,
                                     color = HudColors.TextPrimary,
                                     fontWeight = FontWeight.Bold,
-                                    maxLines = 1,
-                                    overflow = TextOverflow.Ellipsis,
+                                    maxLines = 2,
                                 )
                                 Text(
                                     descriptor.description,
                                     color = HudColors.TextSecondary,
                                     style = MaterialTheme.typography.bodySmall,
-                                    maxLines = 2,
-                                    overflow = TextOverflow.Ellipsis,
                                 )
                             }
                             Text("＋", color = HudColors.CyanBright, fontSize = 20.sp)
@@ -1005,7 +1135,11 @@ private fun Page(
     content: @Composable () -> Unit,
 ) {
     LazyColumn(
-        modifier = Modifier.fillMaxSize().background(HudColors.Background).statusBarsPadding(),
+        modifier =
+            Modifier
+                .fillMaxSize()
+                .background(HudColors.Background)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)),
         contentPadding =
             androidx.compose.foundation.layout
                 .PaddingValues(start = HudSpacing.Screen, end = HudSpacing.Screen, top = 10.dp, bottom = 24.dp),

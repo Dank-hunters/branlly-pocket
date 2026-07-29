@@ -9,18 +9,25 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.GenericShape
 import androidx.compose.material3.MaterialTheme
@@ -41,6 +48,7 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -73,7 +81,12 @@ object HudSpacing {
     val Panel = 12.dp
     val Gap = 10.dp
     val Tight = 6.dp
+    val CompactWidth = 370.dp
+    val NarrowWidth = 340.dp
 }
+
+@Composable
+fun isHudCompact(maxWidth: Dp): Boolean = maxWidth < HudSpacing.CompactWidth || LocalDensity.current.fontScale >= 1.25f
 
 @Composable
 fun HudSurfaceTheme(content: @Composable () -> Unit) {
@@ -100,6 +113,12 @@ fun HudSurfaceTheme(content: @Composable () -> Unit) {
                 onPrimaryContainer = HudColors.TextPrimary,
                 secondary = HudColors.Cyan,
                 onSecondary = HudColors.Background,
+                secondaryContainer = HudColors.Cyan.copy(alpha = 0.16f),
+                onSecondaryContainer = HudColors.TextPrimary,
+                tertiary = HudColors.CyanMuted,
+                onTertiary = HudColors.TextPrimary,
+                tertiaryContainer = HudColors.Card,
+                onTertiaryContainer = HudColors.TextPrimary,
                 background = HudColors.Background,
                 onBackground = HudColors.TextPrimary,
                 surface = HudColors.BackgroundRaised,
@@ -108,7 +127,11 @@ fun HudSurfaceTheme(content: @Composable () -> Unit) {
                 onSurfaceVariant = HudColors.TextSecondary,
                 error = HudColors.Error,
                 onError = HudColors.Background,
+                errorContainer = HudColors.Error.copy(alpha = 0.12f),
+                onErrorContainer = HudColors.TextPrimary,
                 outline = HudColors.CyanMuted,
+                outlineVariant = HudColors.Grid,
+                surfaceTint = HudColors.Cyan,
                 scrim = Color.Black,
             ),
         typography =
@@ -232,15 +255,12 @@ fun HudChoiceCard(
                 fontFamily = FontFamily.Monospace,
                 fontWeight = FontWeight.Bold,
                 fontSize = 17.sp,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
+                maxLines = 3,
             )
             Text(
                 description,
                 color = HudColors.TextSecondary,
                 style = MaterialTheme.typography.bodySmall,
-                maxLines = 3,
-                overflow = TextOverflow.Ellipsis,
             )
         }
         Spacer(Modifier.width(8.dp))
@@ -280,6 +300,7 @@ fun HudPrimaryButton(
     modifier: Modifier = Modifier,
     enabled: Boolean = true,
     labelFontSize: TextUnit = 15.sp,
+    showLeadingGlyph: Boolean = true,
 ) {
     val accent = if (enabled) HudColors.CyanBright else HudColors.Disabled
     val interactionSource = remember { MutableInteractionSource() }
@@ -320,7 +341,9 @@ fun HudPrimaryButton(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp),
         ) {
-            Text("▶", modifier = Modifier.align(Alignment.CenterStart), color = accent, fontSize = 15.sp)
+            if (showLeadingGlyph) {
+                Text("▶", modifier = Modifier.align(Alignment.CenterStart), color = accent, fontSize = 15.sp)
+            }
             Text(
                 text.uppercase(),
                 modifier = Modifier.align(Alignment.Center),
@@ -408,20 +431,37 @@ fun HudSectionHeader(
     detail: String? = null,
     modifier: Modifier = Modifier,
 ) {
-    Row(modifier = modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-        Text(
-            title.uppercase(),
-            modifier = Modifier.weight(1f),
-            color = HudColors.CyanBright,
-            fontFamily = FontFamily.Monospace,
-            fontWeight = FontWeight.Bold,
-            fontSize = 14.sp,
-            letterSpacing = 0.8.sp,
-        )
-        detail?.let {
-            Text(it.uppercase(), color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+    BoxWithConstraints(modifier = modifier.fillMaxWidth()) {
+        if (detail != null && isHudCompact(maxWidth)) {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                HudSectionTitle(title)
+                Text(detail.uppercase(), color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+            }
+        } else {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                HudSectionTitle(title, Modifier.weight(1f))
+                detail?.let {
+                    Text(it.uppercase(), color = HudColors.TextSecondary, fontFamily = FontFamily.Monospace, fontSize = 9.sp)
+                }
+            }
         }
     }
+}
+
+@Composable
+private fun HudSectionTitle(
+    title: String,
+    modifier: Modifier = Modifier,
+) {
+    Text(
+        title.uppercase(),
+        modifier = modifier,
+        color = HudColors.CyanBright,
+        fontFamily = FontFamily.Monospace,
+        fontWeight = FontWeight.Bold,
+        fontSize = 14.sp,
+        letterSpacing = 0.8.sp,
+    )
 }
 
 @Composable
@@ -567,6 +607,7 @@ fun HudBottomNavigation(
         modifier =
             modifier
                 .fillMaxWidth()
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom + WindowInsetsSides.Horizontal))
                 .background(HudColors.BackgroundRaised)
                 .border(1.dp, HudColors.Grid, HudCutCornerShape)
                 .padding(horizontal = 10.dp, vertical = 7.dp),
@@ -590,6 +631,7 @@ private fun RowScope.HudNavItem(
         modifier =
             Modifier
                 .weight(1f)
+                .defaultMinSize(minHeight = 48.dp)
                 .background(if (selected) HudColors.Cyan.copy(alpha = 0.07f) else Color.Transparent, HudCutCornerShape)
                 .then(if (selected) Modifier.border(1.dp, HudColors.Grid, HudCutCornerShape) else Modifier)
                 .clickable(onClick = onClick)
@@ -598,6 +640,14 @@ private fun RowScope.HudNavItem(
     ) {
         Text(glyph, color = color, fontSize = 19.sp, fontWeight = FontWeight.Bold)
         Spacer(Modifier.height(1.dp))
-        Text(label, color = color, fontFamily = FontFamily.Monospace, fontSize = 9.sp, letterSpacing = 0.6.sp)
+        Text(
+            label,
+            color = color,
+            fontFamily = FontFamily.Monospace,
+            fontSize = 9.sp,
+            letterSpacing = 0.6.sp,
+            maxLines = 2,
+            textAlign = TextAlign.Center,
+        )
     }
 }
