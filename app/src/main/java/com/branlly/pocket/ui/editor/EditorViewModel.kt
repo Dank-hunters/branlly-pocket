@@ -268,11 +268,7 @@ class EditorViewModel(
         _state.update { current ->
             val pending = current.actionDraft ?: return@update current
             val draft = current.draft ?: return@update current
-            val existingIndex = draft.nodes.indexOfFirst { it.id == pending.id }
-            val nodes =
-                draft.nodes.toMutableList().apply {
-                    if (existingIndex >= 0) set(existingIndex, pending) else add(current.insertionIndex.coerceIn(0, size), pending)
-                }
+            val nodes = ActionDraftTransaction.commit(draft.nodes, pending, current.insertionIndex)
             current.copy(draft = draft.copy(nodes = nodes), selectedNodeId = null, actionDraft = null)
         }
 
