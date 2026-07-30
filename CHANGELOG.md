@@ -1,5 +1,13 @@
 # Journal des modifications
 
+## 0.15.6
+
+### Corrections
+
+- Les routines enregistrées peuvent de nouveau être testées et lancées depuis les widgets.
+- Un lancement défaillant ne laisse plus un verrou d’exécution persistant bloquant les routines suivantes.
+- Les états d’exécution orphelins sont nettoyés sans supprimer les continuations utilisateur légitimes.
+
 ## 0.15.5
 
 ### Nouveautés et améliorations
