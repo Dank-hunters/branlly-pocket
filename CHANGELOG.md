@@ -1,5 +1,12 @@
 # Journal des modifications
 
+## 0.15.4
+
+### Nouveautés et améliorations
+
+- PLAY_MEDIA privilégie désormais la commande de lecture directe depuis la recherche vers la session du lecteur configuré.
+- Le lecteur n’est ouvert sur sa recherche qu’en solution de secours si la commande directe ne mène pas à une lecture confirmée.
+
 ## 0.15.3
 
 ### Nouveautés et améliorations
