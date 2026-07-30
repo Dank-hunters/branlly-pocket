@@ -152,19 +152,19 @@ internal fun PlayMediaForm(
             FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 FilterChip(
                     contentMode == MediaContentMode.SEARCH,
-                    { onChange(action.copy(mediaUri = null)) },
+                    { onChange(action.forSearch()) },
                     { Text("Rechercher un titre") },
                 )
                 FilterChip(
                     contentMode == MediaContentMode.URI,
-                    { onChange(action.copy(searchQuery = "")) },
+                    { onChange(action.forUri()) },
                     { Text("Utiliser un lien direct") },
                 )
             }
             if (contentMode == MediaContentMode.SEARCH) {
                 OutlinedTextField(
                     value = action.searchQuery,
-                    onValueChange = { onChange(action.copy(searchQuery = it.take(500), mediaUri = null)) },
+                    onValueChange = { onChange(action.forSearch(it.take(500))) },
                     modifier = Modifier.fillMaxWidth().focusRequester(contentFocus),
                     label = { Text("Recherche") },
                     supportingText = { if (action.searchQuery.isBlank()) Text("Saisissez un titre, artiste ou recherche complète.") },
@@ -175,7 +175,7 @@ internal fun PlayMediaForm(
             } else {
                 OutlinedTextField(
                     value = action.mediaUri.orEmpty(),
-                    onValueChange = { onChange(action.copy(mediaUri = it.take(500).ifBlank { null }, searchQuery = "")) },
+                    onValueChange = { onChange(action.forUri(it.take(500))) },
                     modifier = Modifier.fillMaxWidth().focusRequester(contentFocus),
                     label = { Text("URI ou URL multimédia") },
                     supportingText = { if (action.mediaUri.isNullOrBlank()) Text("Saisissez un lien multimédia.") },
@@ -250,7 +250,13 @@ internal fun PlayMediaForm(
     }
 }
 
-private enum class MediaContentMode { SEARCH, URI }
+internal enum class MediaContentMode { SEARCH, URI }
+
+internal fun ShortcutAction.PlayMedia.forSearch(query: String = searchQuery): ShortcutAction.PlayMedia =
+    copy(searchQuery = query, mediaUri = null)
+
+internal fun ShortcutAction.PlayMedia.forUri(uri: String? = mediaUri): ShortcutAction.PlayMedia =
+    copy(searchQuery = "", mediaUri = uri?.ifBlank { null })
 
 @Composable
 private fun Toggle(
