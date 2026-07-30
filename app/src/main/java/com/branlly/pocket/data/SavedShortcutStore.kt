@@ -36,6 +36,11 @@ import java.time.LocalTime
 
 private val Context.shortcutDataStore by preferencesDataStore(name = "saved_shortcuts")
 
+/** Historical creation modes are accepted only as storage compatibility and always open in the free editor. */
+internal fun normalizeStoredEditorMode(
+    @Suppress("UNUSED_PARAMETER") storedMode: String?,
+): EditorMode = EditorMode.ADVANCED
+
 /** Persistance atomique, privée à l'application et exclue des sauvegardes Android. */
 class SavedShortcutStore(
     context: Context,
@@ -72,8 +77,7 @@ class SavedShortcutStore(
     fun encodeSnapshot(shortcut: ShortcutDefinition): String = encodeDefinition(shortcut).toString()
 
     /** Restores a continuation snapshot without assigning a new routine id. */
-    fun decodeSnapshot(raw: String): ShortcutDefinition? =
-        runCatching { decodeDefinition(JSONObject(raw)) }.getOrNull()
+    fun decodeSnapshot(raw: String): ShortcutDefinition? = runCatching { decodeDefinition(JSONObject(raw)) }.getOrNull()
 
     /** Invalid or unsupported documents are rejected without altering persisted routines. */
     fun import(raw: String): ShortcutDefinition? =
@@ -155,7 +159,7 @@ class SavedShortcutStore(
                             ?: error("Invalid node at index $index")
                     },
                 // Legacy finalForegroundNodeId is intentionally ignored: order is now nodes-only.
-                mode = enumValue(item.optString("mode"), EditorMode.SIMPLE),
+                mode = normalizeStoredEditorMode(item.optString("mode")),
                 enabled = item.optBoolean("enabled", false),
                 schemaVersion = item.optInt("schemaVersion", ShortcutDefinition.CURRENT_SCHEMA_VERSION),
                 createdAt = instant(item.optString("createdAt")),
@@ -343,8 +347,7 @@ class SavedShortcutStore(
 
     private fun encodeAction(action: ShortcutAction): JSONObject = ActionJsonCodecRegistry.DEFAULT.encode(action)
 
-    private fun decodeAction(item: JSONObject?): ShortcutAction? =
-        item?.let(ActionJsonCodecRegistry.DEFAULT::decode)
+    private fun decodeAction(item: JSONObject?): ShortcutAction? = item?.let(ActionJsonCodecRegistry.DEFAULT::decode)
 
     private fun encodeErrorStrategy(strategy: ErrorStrategy): JSONObject =
         JSONObject().apply {

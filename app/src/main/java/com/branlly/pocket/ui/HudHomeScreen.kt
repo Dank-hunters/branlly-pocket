@@ -588,10 +588,7 @@ private fun handleVoiceCommand(
     if (saved != null) {
         launchHudShortcut(context, saved)
     } else {
-        when (command) {
-            LocalVoiceCommand.NAVIGATION -> viewModel.useDepartureBlueprint()
-            LocalVoiceCommand.MUSIC -> viewModel.usePlayMediaAction()
-        }
+        viewModel.startFree()
     }
 }
 
