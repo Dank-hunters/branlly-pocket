@@ -125,6 +125,7 @@ import com.branlly.pocket.ui.voice.VoiceCommandControl
 @Composable
 fun BranllyPocketApp(
     sharedMediaLink: String? = null,
+    openCreateRequest: Int = 0,
     viewModel: EditorViewModel = viewModel(),
 ) {
     val context = LocalContext.current
@@ -150,6 +151,9 @@ fun BranllyPocketApp(
     }
     LaunchedEffect(sharedMediaLink) {
         sharedMediaLink?.let(viewModel::receiveSharedMediaLink)
+    }
+    LaunchedEffect(openCreateRequest) {
+        if (openCreateRequest > 0) viewModel.showStart()
     }
     val state by viewModel.state.collectAsState()
     val showSetup =

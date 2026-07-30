@@ -1,5 +1,13 @@
 # Journal des modifications
 
+## 0.15.2
+
+### Nouveautés et améliorations
+
+- Deux widgets compacts permettent de lancer une sélection ordonnée de routines enregistrées.
+- Le widget « Routines » affiche jusqu’à quatre routines ; « Routines + Créer » en affiche jusqu’à trois avec un accès direct à la création.
+- Chaque widget possède sa configuration et sa sélection indépendantes.
+
 ## 0.15.1
 
 ### Nouveautés et améliorations
