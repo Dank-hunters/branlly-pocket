@@ -1,5 +1,16 @@
 # Journal des modifications
 
+## 0.15.3
+
+### Nouveautés et améliorations
+
+- Correction de l’activation Bluetooth sur Android 11.
+- Le contrôle Bluetooth s’adapte automatiquement à la version Android : aucune demande « Appareils à proximité » sur Android 11, et `BLUETOOTH_CONNECT` seulement à partir d’Android 12.
+- L’assistant d’autorisations et l’exécution des routines utilisent désormais la même politique de capacités Android.
+- Le succès Bluetooth est confirmé uniquement après l’activation réelle de l’adaptateur.
+- Les autres accès système sont vérifiés selon leur besoin réel.
+- Les routines existantes ne nécessitent aucune modification.
+
 ## 0.15.2
 
 ### Nouveautés et améliorations
