@@ -36,6 +36,8 @@ internal class ExecutionJobRegistry {
         jobs.remove(executionId, job)
     }
 
+    fun contains(executionId: String): Boolean = jobs.containsKey(executionId)
+
     fun cancel(executionId: String): Boolean {
         val job = jobs.remove(executionId) ?: return false
         job.cancel()
@@ -56,6 +58,15 @@ class RoutineExecutionService : Service() {
     ): Int {
         val sourceIntent = intent ?: Intent().setAction(ACTION_START)
         val command = sourceIntent.action ?: ACTION_START
+        if (command == ACTION_START || command == ACTION_TEST) {
+            val store = PersistentRoutineExecutionStateStore(applicationContext)
+            val active = store.active(System.currentTimeMillis())
+            if (active?.status == com.branlly.pocket.domain.execution.ExecutionStatus.RUNNING &&
+                !executionJobs.contains(active.executionId)
+            ) {
+                store.finish(active.executionId)
+            }
+        }
         activeCommands.incrementAndGet()
         startForeground(NOTIFICATION_ID, notification("Routine en cours", "Préparation…"))
         val executionId =
@@ -83,6 +94,9 @@ class RoutineExecutionService : Service() {
                         "APP_PACKAGE=$packageName command=$command state=FINISHED result=$result timestamp=${System.currentTimeMillis()}",
                     )
                 } catch (error: Throwable) {
+                    if (command == ACTION_START || command == ACTION_TEST) {
+                        executionId?.let { PersistentRoutineExecutionStateStore(applicationContext).finish(it) }
+                    }
                     Log.e(TAG, "APP_PACKAGE=$packageName command=$command state=CRASHED", error)
                 } finally {
                     if (command != ACTION_CANCEL_ACTIVE) {
