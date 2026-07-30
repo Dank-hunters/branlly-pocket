@@ -12,7 +12,6 @@ import android.os.Bundle
 import androidx.core.app.NotificationManagerCompat
 import com.branlly.pocket.domain.execution.ActionExecutionContext
 import com.branlly.pocket.domain.media.MediaCapabilitySnapshot
-import com.branlly.pocket.domain.model.PreferredMediaContentType
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.workflow.CapabilityResolver
 import com.branlly.pocket.platform.android.BranllyMediaListener
@@ -129,19 +128,14 @@ class AndroidMediaSessionCommandGateway(
                 }
 
                 action.searchQuery.isNotBlank() && actions supports PlaybackState.ACTION_PLAY_FROM_SEARCH -> {
-                    controls.playFromSearch(action.effectiveSearchQuery(), Bundle.EMPTY)
+                    controls.playFromSearch(action.searchQuery, Bundle.EMPTY)
                     MediaSessionCommandResult.Sent("playFromSearch")
                 }
 
                 action.searchQuery.isNotBlank() && actions supports PlaybackState.ACTION_PREPARE_FROM_SEARCH -> {
-                    controls.prepareFromSearch(action.effectiveSearchQuery(), Bundle.EMPTY)
+                    controls.prepareFromSearch(action.searchQuery, Bundle.EMPTY)
                     if (actions supports PlaybackState.ACTION_PLAY) controls.play()
                     MediaSessionCommandResult.Sent("prepareFromSearch${if (actions supports PlaybackState.ACTION_PLAY) "+play" else ""}")
-                }
-
-                actions supports PlaybackState.ACTION_PLAY -> {
-                    controls.play()
-                    MediaSessionCommandResult.Sent("play")
                 }
 
                 else -> {
@@ -162,16 +156,3 @@ fun interface ManualMediaGuidance {
 
     fun clear() = Unit
 }
-
-private fun ShortcutAction.PlayMedia.effectiveSearchQuery(): String =
-    buildList {
-        add(searchQuery.trim())
-        artist?.trim()?.takeIf(String::isNotBlank)?.let(::add)
-        when (preferredContentType) {
-            PreferredMediaContentType.AUTO -> Unit
-            PreferredMediaContentType.SONG -> add("song")
-            PreferredMediaContentType.VIDEO -> add("video")
-            PreferredMediaContentType.PLAYLIST -> add("playlist")
-            PreferredMediaContentType.PODCAST -> add("podcast")
-        }
-    }.filter(String::isNotBlank).joinToString(" ")

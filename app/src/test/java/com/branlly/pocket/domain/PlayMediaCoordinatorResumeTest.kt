@@ -86,6 +86,19 @@ class PlayMediaCoordinatorResumeTest {
             assertEquals(0, fixture.guidanceShows)
         }
 
+    @Test
+    fun `direct media session completes before provider search is opened`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.completeOnCommand = true
+
+            val result = fixture.coordinator().execute(action(), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(1, fixture.commandCalls)
+            assertEquals(0, fixture.launchCalls)
+        }
+
     private class Fixture(
         initialOutcome: MediaObservedOutcome? = null,
     ) {
