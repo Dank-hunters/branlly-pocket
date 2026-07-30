@@ -135,7 +135,12 @@ class RoutineExecutionService : Service() {
             "APP_PACKAGE=$packageName execution=${identity.executionId} continuation=${identity.continuationId} node=${identity.nodeId.value} state=RESUME_REQUESTED",
         )
         update("Routine en cours", "Reprise de l’action en cours")
-        return RoutineOrchestrator.resume(applicationContext, identity)
+        val destination = intent.getStringExtra(EXTRA_ROUTE_DESTINATION)?.trim().orEmpty()
+        return RoutineOrchestrator.resume(
+            applicationContext,
+            identity,
+            if (destination.isBlank()) emptyMap() else mapOf("destination" to destination),
+        )
     }
 
     private fun cancel(
@@ -212,6 +217,7 @@ class RoutineExecutionService : Service() {
         private const val EXTRA_SHORTCUT_ID = "shortcut_id"
         private const val EXTRA_EXECUTION_ID = "execution_id"
         private const val EXTRA_ROUTINE_SNAPSHOT = "routine_snapshot"
+        const val EXTRA_ROUTE_DESTINATION = "route_destination"
         private const val TAG = "BranllyRoutine"
 
         fun start(

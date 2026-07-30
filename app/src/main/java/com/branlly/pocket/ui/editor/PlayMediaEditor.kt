@@ -15,12 +15,16 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Slider
 import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -28,9 +32,12 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.branlly.pocket.domain.model.MediaErrorStrategy
@@ -57,6 +64,16 @@ internal fun PlayMediaForm(
     }
     var appQuery by remember { mutableStateOf("") }
     var advanced by remember { mutableStateOf(false) }
+    var manualPackage by remember { mutableStateOf(false) }
+    val contentRequester = remember { BringIntoViewRequester() }
+    val contentFocus = remember { FocusRequester() }
+    val contentMode = if (action.mediaUri.isNullOrBlank()) MediaContentMode.SEARCH else MediaContentMode.URI
+    LaunchedEffect(action.targetPackage) {
+        if (action.targetPackage.isNotBlank()) {
+            contentRequester.bringIntoView()
+            contentFocus.requestFocus()
+        }
+    }
     val filtered =
         remember(applications, appQuery) {
             applications.filter { appQuery.isBlank() || it.label.contains(appQuery, true) || it.packageName.contains(appQuery, true) }
@@ -69,6 +86,7 @@ internal fun PlayMediaForm(
         modifier = Modifier.fillMaxWidth(),
         label = { Text("Rechercher une application") },
         singleLine = true,
+        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
     )
     if (appQuery.isNotBlank()) {
         LazyColumn(Modifier.fillMaxWidth().heightIn(max = 220.dp)) {
@@ -114,22 +132,60 @@ internal fun PlayMediaForm(
         HudPanel(borderColor = HudColors.Warning.copy(alpha = 0.65f)) {
             Text("Choisissez une application.", color = HudColors.Warning)
         }
+        Text("Application introuvable ?", color = HudColors.TextSecondary)
+        FilterChip(manualPackage, { manualPackage = !manualPackage }, { Text("Saisir un package manuellement") })
+        if (manualPackage) {
+            OutlinedTextField(
+                value = action.targetPackage,
+                onValueChange = { onChange(action.forManualPackage(it)) },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Package Android") },
+                supportingText = { Text("Ex. com.example.player") },
+                singleLine = true,
+                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Next),
+            )
+        }
     }
-    OutlinedTextField(
-        value = action.searchQuery,
-        onValueChange = { onChange(action.copy(searchQuery = it.take(500))) },
-        modifier = Modifier.fillMaxWidth(),
-        label = { Text("Recherche") },
-        supportingText = {
-            if (action.searchQuery.isBlank() &&
-                action.mediaUri.isNullOrBlank()
-            ) {
-                Text("Une recherche ou une URI est obligatoire.")
+    if (action.targetPackage.isNotBlank()) {
+        Column(modifier = Modifier.bringIntoViewRequester(contentRequester)) {
+            HudSectionHeader("Contenu", "Choisissez une source")
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterChip(
+                    contentMode == MediaContentMode.SEARCH,
+                    { onChange(action.forSearch()) },
+                    { Text("Rechercher un titre") },
+                )
+                FilterChip(
+                    contentMode == MediaContentMode.URI,
+                    { onChange(action.forUri()) },
+                    { Text("Utiliser un lien direct") },
+                )
             }
-        },
-        isError = action.searchQuery.isBlank() && action.mediaUri.isNullOrBlank(),
-        singleLine = true,
-    )
+            if (contentMode == MediaContentMode.SEARCH) {
+                OutlinedTextField(
+                    value = action.searchQuery,
+                    onValueChange = { onChange(action.forSearch(it.take(500))) },
+                    modifier = Modifier.fillMaxWidth().focusRequester(contentFocus),
+                    label = { Text("Recherche") },
+                    supportingText = { if (action.searchQuery.isBlank()) Text("Saisissez un titre, artiste ou recherche complète.") },
+                    isError = action.searchQuery.isBlank(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                )
+            } else {
+                OutlinedTextField(
+                    value = action.mediaUri.orEmpty(),
+                    onValueChange = { onChange(action.forUri(it.take(500))) },
+                    modifier = Modifier.fillMaxWidth().focusRequester(contentFocus),
+                    label = { Text("URI ou URL multimédia") },
+                    supportingText = { if (action.mediaUri.isNullOrBlank()) Text("Saisissez un lien multimédia.") },
+                    isError = action.mediaUri.isNullOrBlank(),
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                )
+            }
+        }
+    }
 
     HudPanel(
         modifier = Modifier.fillMaxWidth().clickable { advanced = !advanced },
@@ -141,13 +197,6 @@ internal fun PlayMediaForm(
         )
     }
     if (advanced) {
-        OutlinedTextField(
-            value = action.mediaUri.orEmpty(),
-            onValueChange = { onChange(action.copy(mediaUri = it.take(500).ifBlank { null })) },
-            modifier = Modifier.fillMaxWidth(),
-            label = { Text("URI ou URL exacte") },
-            singleLine = true,
-        )
         OutlinedTextField(
             value = action.artist.orEmpty(),
             onValueChange = { onChange(action.copy(artist = it.take(200).ifBlank { null })) },
@@ -200,6 +249,17 @@ internal fun PlayMediaForm(
         }
     }
 }
+
+internal enum class MediaContentMode { SEARCH, URI }
+
+internal fun ShortcutAction.PlayMedia.forManualPackage(packageName: String): ShortcutAction.PlayMedia =
+    copy(targetPackage = packageName.trim(), targetAppLabel = packageName.trim())
+
+internal fun ShortcutAction.PlayMedia.forSearch(query: String = searchQuery): ShortcutAction.PlayMedia =
+    copy(searchQuery = query, mediaUri = null)
+
+internal fun ShortcutAction.PlayMedia.forUri(uri: String? = mediaUri): ShortcutAction.PlayMedia =
+    copy(searchQuery = "", mediaUri = uri?.ifBlank { null })
 
 @Composable
 private fun Toggle(

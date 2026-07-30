@@ -1,5 +1,16 @@
 # Journal des modifications
 
+## 0.15.5
+
+### Nouveautés et améliorations
+
+- Choisir une action configurable ouvre désormais directement son formulaire, sans ajouter de node incomplet à la timeline.
+- La validation des actions est transactionnelle : l’annulation conserve la routine intacte et l’édition garde le même node.
+- Le formulaire PLAY_MEDIA guide la sélection de l’application puis le choix entre recherche et lien direct.
+- La saisie manuelle d’un package multimédia reste disponible comme option secondaire.
+- OPEN_ROUTE peut maintenant demander une destination au moment de l’exécution, y compris depuis une continuation en arrière-plan.
+- La destination saisie reste propre à l’exécution et ne modifie jamais la routine enregistrée.
+
 ## 0.15.4
 
 ### Nouveautés et améliorations
