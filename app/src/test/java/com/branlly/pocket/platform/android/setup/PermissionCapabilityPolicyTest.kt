@@ -15,6 +15,11 @@ class PermissionCapabilityPolicyTest {
     }
 
     @Test
+    fun `API 30 Bluetooth off does not block completed setup`() {
+        assertTrue(SetupCapabilityPolicy.nearbyDevicesGranted(30, connectPermissionGranted = false))
+    }
+
+    @Test
     fun `API 30 detects disabled application notifications`() {
         assertFalse(
             SetupCapabilityPolicy.notificationsGranted(

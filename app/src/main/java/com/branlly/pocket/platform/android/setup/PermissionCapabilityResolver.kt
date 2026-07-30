@@ -4,12 +4,14 @@ import android.Manifest
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.os.Build
 import android.provider.Settings
 import androidx.core.app.NotificationManagerCompat
-import androidx.core.content.ContextCompat
 import com.branlly.pocket.platform.android.BranllyMediaListener
+import com.branlly.pocket.platform.android.capabilities.AndroidCapability
+import com.branlly.pocket.platform.android.capabilities.AndroidCapabilityResolver
+import com.branlly.pocket.platform.android.capabilities.AndroidPlatformInfo
+import com.branlly.pocket.platform.android.capabilities.RuntimeAndroidPlatformInfo
 
 enum class SetupCapability {
     NOTIFICATIONS,
@@ -110,12 +112,14 @@ object InitialSetupDecision {
 
 class PermissionCapabilityResolver(
     private val context: Context,
+    private val platform: AndroidPlatformInfo = RuntimeAndroidPlatformInfo,
+    private val capabilityResolver: AndroidCapabilityResolver = AndroidCapabilityResolver(context.applicationContext, platform),
 ) {
     fun resolve(): SetupSnapshot {
-        val sdkInt = Build.VERSION.SDK_INT
+        val sdkInt = platform.sdkInt
         val statuses =
             SetupCapabilityPolicy.requiredCapabilities(sdkInt).map { capability ->
-                SetupCapabilityStatus(capability, isGranted(capability, sdkInt))
+                SetupCapabilityStatus(capability, isGranted(capability))
             }
         return SetupSnapshot(
             statuses = statuses,
@@ -123,34 +127,11 @@ class PermissionCapabilityResolver(
         )
     }
 
-    private fun isGranted(
-        capability: SetupCapability,
-        sdkInt: Int,
-    ): Boolean =
+    private fun isGranted(capability: SetupCapability): Boolean =
         when (capability) {
-            SetupCapability.NOTIFICATIONS -> {
-                val runtimeGranted =
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) ==
-                        PackageManager.PERMISSION_GRANTED
-                SetupCapabilityPolicy.notificationsGranted(
-                    sdkInt = sdkInt,
-                    runtimePermissionGranted = runtimeGranted,
-                    notificationsEnabled = NotificationManagerCompat.from(context).areNotificationsEnabled(),
-                )
-            }
-
-            SetupCapability.MEDIA_CONTROL -> {
-                context.packageName in NotificationManagerCompat.getEnabledListenerPackages(context)
-            }
-
-            SetupCapability.NEARBY_DEVICES -> {
-                SetupCapabilityPolicy.nearbyDevicesGranted(
-                    sdkInt = sdkInt,
-                    connectPermissionGranted =
-                        ContextCompat.checkSelfPermission(context, Manifest.permission.BLUETOOTH_CONNECT) ==
-                            PackageManager.PERMISSION_GRANTED,
-                )
-            }
+            SetupCapability.NOTIFICATIONS -> capabilityResolver.resolve(AndroidCapability.APP_NOTIFICATIONS).granted
+            SetupCapability.MEDIA_CONTROL -> capabilityResolver.resolve(AndroidCapability.MEDIA_PLAYBACK_OBSERVATION).granted
+            SetupCapability.NEARBY_DEVICES -> capabilityResolver.resolve(AndroidCapability.BLUETOOTH_CONTROL).granted
         }
 }
 

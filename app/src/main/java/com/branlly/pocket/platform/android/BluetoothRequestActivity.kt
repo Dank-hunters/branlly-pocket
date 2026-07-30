@@ -1,6 +1,5 @@
 package com.branlly.pocket.platform.android
 
-import android.Manifest
 import android.annotation.SuppressLint
 import android.app.Activity
 import android.bluetooth.BluetoothAdapter
@@ -16,6 +15,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.content.ContextCompat
 import com.branlly.pocket.platform.android.actions.BluetoothEnableGateway
 import com.branlly.pocket.platform.android.actions.BluetoothEnableRequestResult
+import com.branlly.pocket.platform.android.capabilities.AndroidCapabilityPolicy
+import com.branlly.pocket.platform.android.capabilities.RuntimeAndroidPlatformInfo
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -33,7 +34,10 @@ internal class BluetoothRequestResultRegistry {
     private val waiters = ConcurrentHashMap<String, CompletableDeferred<BluetoothSystemRequestResult>>()
     private val earlyResults = ConcurrentHashMap<String, BluetoothSystemRequestResult>()
 
-    suspend fun await(requestId: String, timeoutMillis: Long): BluetoothSystemRequestResult? {
+    suspend fun await(
+        requestId: String,
+        timeoutMillis: Long,
+    ): BluetoothSystemRequestResult? {
         earlyResults.remove(requestId)?.let { return it }
         val deferred = CompletableDeferred<BluetoothSystemRequestResult>()
         val existing = waiters.putIfAbsent(requestId, deferred)
@@ -47,7 +51,10 @@ internal class BluetoothRequestResultRegistry {
         }
     }
 
-    fun publish(requestId: String, result: BluetoothSystemRequestResult) {
+    fun publish(
+        requestId: String,
+        result: BluetoothSystemRequestResult,
+    ) {
         val waiter = waiters[requestId]
         if (waiter == null || !waiter.complete(result)) earlyResults[requestId] = result
     }
@@ -61,12 +68,22 @@ private object BluetoothRequestBroker {
 
 /** Minimal non-exported Activity owning runtime permission and ACTION_REQUEST_ENABLE results. */
 class BluetoothRequestActivity : ComponentActivity() {
-    private val permissionLauncher = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
-        if (granted) requestEnable() else complete(BluetoothSystemRequestResult.PERMISSION_DENIED)
-    }
-    private val enableLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
-        complete(if (result.resultCode == Activity.RESULT_OK) BluetoothSystemRequestResult.ACCEPTED else BluetoothSystemRequestResult.REFUSED)
-    }
+    private val permissionLauncher =
+        registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+            if (granted) requestEnable() else complete(BluetoothSystemRequestResult.PERMISSION_DENIED)
+        }
+    private val enableLauncher =
+        registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            complete(
+                if (result.resultCode ==
+                    Activity.RESULT_OK
+                ) {
+                    BluetoothSystemRequestResult.ACCEPTED
+                } else {
+                    BluetoothSystemRequestResult.REFUSED
+                },
+            )
+        }
 
     private val requestId: String? get() = intent?.getStringExtra(EXTRA_REQUEST_ID)?.takeIf(String::isNotBlank)
 
@@ -80,8 +97,9 @@ class BluetoothRequestActivity : ComponentActivity() {
     }
 
     private fun beginRequest() {
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
-            permissionLauncher.launch(Manifest.permission.BLUETOOTH_CONNECT)
+        val runtimePermission = AndroidCapabilityPolicy.bluetoothRuntimePermissions(RuntimeAndroidPlatformInfo).singleOrNull()
+        if (runtimePermission != null && ContextCompat.checkSelfPermission(this, runtimePermission) != PackageManager.PERMISSION_GRANTED) {
+            permissionLauncher.launch(runtimePermission)
         } else {
             requestEnable()
         }
@@ -93,10 +111,19 @@ class BluetoothRequestActivity : ComponentActivity() {
         val adapter = getSystemService(BluetoothManager::class.java).adapter
         if (adapter == null) {
             complete(BluetoothSystemRequestResult.REFUSED)
-        } else if (adapter.state == BluetoothAdapter.STATE_ON) {
+        } else if (runCatching { adapter.state == BluetoothAdapter.STATE_ON }.getOrElse {
+                complete(BluetoothSystemRequestResult.PERMISSION_DENIED)
+                return
+            }
+        ) {
             complete(BluetoothSystemRequestResult.ACCEPTED)
         } else {
-            enableLauncher.launch(Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE))
+            val intent = Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE)
+            if (intent.resolveActivity(packageManager) == null) {
+                complete(BluetoothSystemRequestResult.REFUSED)
+            } else {
+                enableLauncher.launch(intent)
+            }
         }
     }
 
@@ -111,7 +138,10 @@ class BluetoothRequestActivity : ComponentActivity() {
         private const val EXTRA_REQUEST_ID = "request_id"
         internal const val PREFERENCES = "bluetooth_request_results"
 
-        fun intent(context: Context, requestId: String): Intent =
+        fun intent(
+            context: Context,
+            requestId: String,
+        ): Intent =
             Intent(context, BluetoothRequestActivity::class.java)
                 .putExtra(EXTRA_REQUEST_ID, requestId)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
@@ -123,34 +153,48 @@ class AndroidBluetoothEnableGateway(
 ) : BluetoothEnableGateway {
     private val appContext = context.applicationContext
 
-    override suspend fun requestEnable(requestId: String, timeoutMillis: Long): BluetoothEnableRequestResult {
+    override suspend fun requestEnable(
+        requestId: String,
+        timeoutMillis: Long,
+    ): BluetoothEnableRequestResult {
         val startedAt = System.currentTimeMillis()
         consumePersisted(requestId)?.let { result -> return resolveSystemResult(result, timeoutMillis) }
         return try {
             appContext.startActivity(BluetoothRequestActivity.intent(appContext, requestId))
-            val systemResult = BluetoothRequestBroker.registry.await(requestId, timeoutMillis)
-                ?: consumePersisted(requestId)
-                ?: return BluetoothEnableRequestResult.TimedOut
+            val systemResult =
+                BluetoothRequestBroker.registry.await(requestId, timeoutMillis)
+                    ?: consumePersisted(requestId)
+                    ?: return BluetoothEnableRequestResult.TimedOut
             val remaining = (timeoutMillis - (System.currentTimeMillis() - startedAt)).coerceAtLeast(1L)
             resolveSystemResult(systemResult, remaining)
         } catch (error: SecurityException) {
             BluetoothEnableRequestResult.Failed(error.message ?: "Android a refusé la demande Bluetooth.")
         } finally {
-            appContext.getSharedPreferences(BluetoothRequestActivity.PREFERENCES, Context.MODE_PRIVATE)
-                .edit().remove(requestId).apply()
+            appContext
+                .getSharedPreferences(BluetoothRequestActivity.PREFERENCES, Context.MODE_PRIVATE)
+                .edit()
+                .remove(requestId)
+                .apply()
         }
     }
 
     private suspend fun resolveSystemResult(
         result: BluetoothSystemRequestResult,
         timeoutMillis: Long,
-    ): BluetoothEnableRequestResult = when (result) {
-        BluetoothSystemRequestResult.ACCEPTED -> {
-            if (awaitStateOn(timeoutMillis)) BluetoothEnableRequestResult.Enabled else BluetoothEnableRequestResult.TimedOut
+    ): BluetoothEnableRequestResult =
+        when (result) {
+            BluetoothSystemRequestResult.ACCEPTED -> {
+                if (awaitStateOn(timeoutMillis)) BluetoothEnableRequestResult.Enabled else BluetoothEnableRequestResult.TimedOut
+            }
+
+            BluetoothSystemRequestResult.REFUSED -> {
+                if (awaitStateOn(timeoutMillis)) BluetoothEnableRequestResult.Enabled else BluetoothEnableRequestResult.Refused
+            }
+
+            BluetoothSystemRequestResult.PERMISSION_DENIED -> {
+                BluetoothEnableRequestResult.PermissionDenied
+            }
         }
-        BluetoothSystemRequestResult.REFUSED -> BluetoothEnableRequestResult.Refused
-        BluetoothSystemRequestResult.PERMISSION_DENIED -> BluetoothEnableRequestResult.PermissionDenied
-    }
 
     private fun consumePersisted(requestId: String): BluetoothSystemRequestResult? {
         val preferences = appContext.getSharedPreferences(BluetoothRequestActivity.PREFERENCES, Context.MODE_PRIVATE)
@@ -165,14 +209,20 @@ class AndroidBluetoothEnableGateway(
         if (runCatching { adapter.state == BluetoothAdapter.STATE_ON }.getOrDefault(false)) return true
         return withTimeoutOrNull(timeoutMillis) {
             suspendCancellableCoroutine { continuation ->
-                val receiver = object : BroadcastReceiver() {
-                    override fun onReceive(context: Context?, intent: Intent?) {
-                        if (intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) == BluetoothAdapter.STATE_ON && continuation.isActive) {
-                            runCatching { appContext.unregisterReceiver(this) }
-                            continuation.resume(true)
+                val receiver =
+                    object : BroadcastReceiver() {
+                        override fun onReceive(
+                            context: Context?,
+                            intent: Intent?,
+                        ) {
+                            if (intent?.getIntExtra(BluetoothAdapter.EXTRA_STATE, BluetoothAdapter.ERROR) == BluetoothAdapter.STATE_ON &&
+                                continuation.isActive
+                            ) {
+                                runCatching { appContext.unregisterReceiver(this) }
+                                continuation.resume(true)
+                            }
                         }
                     }
-                }
                 ContextCompat.registerReceiver(
                     appContext,
                     receiver,
