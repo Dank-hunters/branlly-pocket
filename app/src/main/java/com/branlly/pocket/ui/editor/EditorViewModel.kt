@@ -317,8 +317,13 @@ class EditorViewModel(
                 } else {
                     defaultAction
                 }
-            val nodes = draft.nodes.toMutableList().apply { add(index, ActionNode(action = action)) }
-            current.copy(draft = draft.copy(nodes = nodes), libraryVisible = false)
+            val inserted = ActionNode(action = action)
+            val nodes = draft.nodes.toMutableList().apply { add(index, inserted) }
+            current.copy(
+                draft = draft.copy(nodes = nodes),
+                libraryVisible = false,
+                selectedNodeId = inserted.id,
+            )
         }
     }
 
