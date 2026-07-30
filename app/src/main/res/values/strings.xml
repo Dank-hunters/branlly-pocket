@@ -2,6 +2,10 @@
     <string name="app_name">Branlly Pocket</string>
     <string name="widget_name">Raccourcis Branlly Pocket</string>
     <string name="widget_description">Accédez à vos raccourcis Branlly Pocket.</string>
+    <string name="widget_routines_name">Branlly Pocket — Routines</string>
+    <string name="widget_routines_description">Lancez jusqu’à quatre routines enregistrées.</string>
+    <string name="widget_routines_create_name">Branlly Pocket — Routines + Créer</string>
+    <string name="widget_routines_create_description">Lancez des routines ou créez-en une nouvelle.</string>
     <string name="widget_open_menu">Ouvrir les raccourcis Branlly Pocket</string>
     <string name="widget_close_menu">Fermer les raccourcis Branlly Pocket</string>
 </resources>

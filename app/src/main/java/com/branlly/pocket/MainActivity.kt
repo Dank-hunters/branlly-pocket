@@ -11,20 +11,26 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import com.branlly.pocket.platform.android.RoutineWidgetIntents
 import com.branlly.pocket.ui.BranllyPocketApp
 import com.branlly.pocket.ui.theme.BranllyPocketTheme
 
 class MainActivity : ComponentActivity() {
     private var sharedMediaLink by mutableStateOf<String?>(null)
+    private var openCreateRequest by mutableStateOf(0)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         sharedMediaLink = extractSharedMediaLink(intent)
+        openCreateRequest = if (intent.action == RoutineWidgetIntents.ACTION_OPEN_CREATE) 1 else 0
         enableEdgeToEdge()
         setContent {
             BranllyPocketTheme {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    BranllyPocketApp(sharedMediaLink = sharedMediaLink)
+                    BranllyPocketApp(
+                        sharedMediaLink = sharedMediaLink,
+                        openCreateRequest = openCreateRequest,
+                    )
                 }
             }
         }
@@ -33,6 +39,7 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         sharedMediaLink = extractSharedMediaLink(intent)
+        if (intent.action == RoutineWidgetIntents.ACTION_OPEN_CREATE) openCreateRequest += 1
     }
 
     private fun extractSharedMediaLink(intent: Intent): String? {

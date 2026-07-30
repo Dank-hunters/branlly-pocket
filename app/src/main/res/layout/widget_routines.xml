@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@drawable/widget_hud_panel_background"
+    android:gravity="center_vertical"
+    android:orientation="horizontal"
+    android:padding="5dp">
+
+    <TextView
+        android:id="@+id/widget_slot_one"
+        style="@style/WidgetRoutineCell" />
+    <TextView
+        android:id="@+id/widget_slot_two"
+        style="@style/WidgetRoutineCell" />
+    <TextView
+        android:id="@+id/widget_slot_three"
+        style="@style/WidgetRoutineCell" />
+    <TextView
+        android:id="@+id/widget_slot_four"
+        style="@style/WidgetRoutineCell" />
+</LinearLayout>
