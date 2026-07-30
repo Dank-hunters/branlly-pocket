@@ -23,6 +23,15 @@ class PlayMediaEditorStateTest {
     }
 
     @Test
+    fun `manual package produces the same media model as normal selection`() {
+        val manuallySelected = action.forManualPackage("example.player").forSearch("precise query")
+        val normallySelected = action.copy(targetAppLabel = "example.player", targetPackage = "example.player").forSearch("precise query")
+
+        assertEquals(normallySelected, manuallySelected)
+        assertNull(manuallySelected.mediaUri)
+    }
+
+    @Test
     fun `blank URI is invalid active content`() {
         val updated = action.forUri("")
         assertEquals("", updated.searchQuery)

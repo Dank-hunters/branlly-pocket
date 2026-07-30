@@ -137,7 +137,7 @@ internal fun PlayMediaForm(
         if (manualPackage) {
             OutlinedTextField(
                 value = action.targetPackage,
-                onValueChange = { onChange(action.copy(targetPackage = it.trim(), targetAppLabel = it.trim())) },
+                onValueChange = { onChange(action.forManualPackage(it)) },
                 modifier = Modifier.fillMaxWidth(),
                 label = { Text("Package Android") },
                 supportingText = { Text("Ex. com.example.player") },
@@ -251,6 +251,9 @@ internal fun PlayMediaForm(
 }
 
 internal enum class MediaContentMode { SEARCH, URI }
+
+internal fun ShortcutAction.PlayMedia.forManualPackage(packageName: String): ShortcutAction.PlayMedia =
+    copy(targetPackage = packageName.trim(), targetAppLabel = packageName.trim())
 
 internal fun ShortcutAction.PlayMedia.forSearch(query: String = searchQuery): ShortcutAction.PlayMedia =
     copy(searchQuery = query, mediaUri = null)
