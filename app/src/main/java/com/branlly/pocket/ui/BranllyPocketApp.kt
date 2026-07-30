@@ -898,7 +898,8 @@ private fun EditorScreen(
     state.selectedNode?.let { node ->
         ActionConfigurationSheet(
             node = node,
-            onActionChange = { viewModel.updateAction(node.id, it) },
+            onActionChange = viewModel::updateActionDraft,
+            onConfirm = viewModel::confirmActionDraft,
             onDismiss = viewModel::hideConfiguration,
         )
     }

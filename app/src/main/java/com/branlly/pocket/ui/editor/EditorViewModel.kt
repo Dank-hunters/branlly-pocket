@@ -256,11 +256,27 @@ class EditorViewModel(
     fun hideLibrary() = _state.update { it.copy(libraryVisible = false) }
 
     fun showConfiguration(nodeId: NodeId) =
-        _state.update {
-            it.copy(selectedNodeId = nodeId, libraryVisible = false)
+        _state.update { current ->
+            val original = current.draft?.nodes?.firstOrNull { it.id == nodeId } ?: return@update current
+            current.copy(selectedNodeId = nodeId, actionDraft = original, libraryVisible = false)
         }
 
-    fun hideConfiguration() = _state.update { it.copy(selectedNodeId = null) }
+    fun updateActionDraft(action: ShortcutAction) =
+        _state.update { current -> current.actionDraft?.let { current.copy(actionDraft = it.copy(action = action)) } ?: current }
+
+    fun confirmActionDraft() =
+        _state.update { current ->
+            val pending = current.actionDraft ?: return@update current
+            val draft = current.draft ?: return@update current
+            val existingIndex = draft.nodes.indexOfFirst { it.id == pending.id }
+            val nodes =
+                draft.nodes.toMutableList().apply {
+                    if (existingIndex >= 0) set(existingIndex, pending) else add(current.insertionIndex.coerceIn(0, size), pending)
+                }
+            current.copy(draft = draft.copy(nodes = nodes), selectedNodeId = null, actionDraft = null)
+        }
+
+    fun hideConfiguration() = _state.update { it.copy(selectedNodeId = null, actionDraft = null) }
 
     fun showPresentationPicker() = _state.update { it.copy(presentationPickerVisible = true) }
 
@@ -318,11 +334,11 @@ class EditorViewModel(
                     defaultAction
                 }
             val inserted = ActionNode(action = action)
-            val nodes = draft.nodes.toMutableList().apply { add(index, inserted) }
             current.copy(
-                draft = draft.copy(nodes = nodes),
                 libraryVisible = false,
                 selectedNodeId = inserted.id,
+                actionDraft = inserted,
+                insertionIndex = index,
             )
         }
     }
@@ -460,13 +476,14 @@ data class EditorUiState(
     val libraryVisible: Boolean = false,
     val insertionIndex: Int = 0,
     val selectedNodeId: NodeId? = null,
+    val actionDraft: ActionNode? = null,
     val triggerConfigurationVisible: Boolean = false,
     val presentationPickerVisible: Boolean = false,
     val savedShortcuts: List<ShortcutDefinition> = emptyList(),
     val message: String? = null,
 ) {
     val selectedNode: ActionNode?
-        get() = draft?.nodes?.find { it.id == selectedNodeId }
+        get() = actionDraft
 
     val suggestions: List<ActionDescriptor>
         get() = emptyList()

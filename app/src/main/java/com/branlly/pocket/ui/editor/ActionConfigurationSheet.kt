@@ -61,6 +61,7 @@ import com.branlly.pocket.platform.android.actions.AndroidActionValidationContex
 import com.branlly.pocket.platform.android.actions.BuiltInProviderCatalog
 import com.branlly.pocket.ui.hud.HudColors
 import com.branlly.pocket.ui.hud.HudPanel
+import com.branlly.pocket.ui.hud.HudPrimaryButton
 import com.branlly.pocket.ui.hud.HudSectionHeader
 import com.branlly.pocket.ui.hud.HudValidationMessage
 import kotlinx.coroutines.Dispatchers
@@ -72,6 +73,7 @@ import kotlin.math.roundToInt
 fun ActionConfigurationSheet(
     node: ActionNode,
     onActionChange: (ShortcutAction) -> Unit,
+    onConfirm: () -> Unit,
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
@@ -102,6 +104,12 @@ fun ActionConfigurationSheet(
                 HudValidationMessage("Cette action existe dans les données mais n’est pas configurable ni exécutable dans cette version.")
             } else {
                 ActionEditorRegistry.Render(registration.editorKey, node.action, onActionChange)
+                HudPrimaryButton(
+                    text = "Valider l’action",
+                    onClick = onConfirm,
+                    modifier = Modifier.fillMaxWidth(),
+                    showLeadingGlyph = false,
+                )
             }
         }
     }
