@@ -28,12 +28,14 @@ object RoutineOrchestrator {
         continuationTtlMillis: Long = DEFAULT_CONTINUATION_TTL_MILLIS,
     ): RoutineExecutionResult {
         val appContext = context.applicationContext
+        val registry = AndroidActionRegistry.create(appContext)
+        val issues = RoutineValidator(registry, AndroidActionValidationContext(appContext)).validate(routine)
+        if (issues.isNotEmpty()) return RoutineExecutionResult.ValidationFailed(issues.map { it.message })
         val now = System.currentTimeMillis()
         val store = PersistentRoutineExecutionStateStore(appContext)
-        if (!store.begin(executionId, routine.id, now + MAX_ACTIVE_EXECUTION_MILLIS, now)) {
-            return RoutineExecutionResult.AlreadyRunning
+        return runWithExecutionLock(store, executionId, routine.id, now, now + MAX_ACTIVE_EXECUTION_MILLIS) {
+            executeClaimed(appContext, routine, executionId, 0, null, null, null, continuationTtlMillis)
         }
-        return executeClaimed(appContext, routine, executionId, 0, null, null, null, continuationTtlMillis)
     }
 
     suspend fun resume(
@@ -198,6 +200,23 @@ object RoutineOrchestrator {
         notifications.remove(identity.continuationId)
         notifications.showMessage(message)
         return RoutineExecutionResult.ContinuationRejected(message)
+    }
+}
+
+internal suspend fun runWithExecutionLock(
+    store: com.branlly.pocket.domain.execution.RoutineExecutionStateStore,
+    executionId: String,
+    routineId: com.branlly.pocket.domain.model.ShortcutId,
+    nowMillis: Long,
+    expiresAtMillis: Long,
+    block: suspend () -> RoutineExecutionResult,
+): RoutineExecutionResult {
+    if (!store.begin(executionId, routineId, expiresAtMillis, nowMillis)) return RoutineExecutionResult.AlreadyRunning
+    return try {
+        block()
+    } catch (error: Throwable) {
+        store.finish(executionId)
+        throw error
     }
 }
 

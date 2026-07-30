@@ -13,6 +13,7 @@ class ExecutionJobRegistryTest {
         val duplicateJob = Job()
 
         assertTrue(registry.register("execution-1", activeJob))
+        assertTrue(registry.contains("execution-1"))
         assertFalse(registry.register("execution-1", duplicateJob))
 
         registry.complete("execution-1", duplicateJob)
@@ -31,6 +32,7 @@ class ExecutionJobRegistryTest {
         registry.complete("execution-1", activeJob)
 
         assertFalse(registry.cancel("execution-1"))
+        assertFalse(registry.contains("execution-1"))
         assertFalse(activeJob.isCancelled)
     }
 }
