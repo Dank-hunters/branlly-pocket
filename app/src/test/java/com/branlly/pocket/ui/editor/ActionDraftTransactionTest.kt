@@ -19,6 +19,17 @@ class ActionDraftTransactionTest {
         assertSame(committed, ActionDraftTransaction.commit(committed, pending, 1))
     }
 
+    @Test fun `uncommitted draft and cancellation leave existing timeline unchanged`() {
+        val first = node("first")
+        val second = node("second")
+        val timeline = listOf(first, second)
+        val draft = node("pending")
+
+        assertEquals(listOf("first", "second"), timeline.map { it.id.value })
+        assertEquals(listOf("first", "second"), timeline.map { it.id.value }) // cancellation performs no commit
+        assertEquals("pending", draft.id.value)
+    }
+
     @Test fun `editing preserves ID and position`() {
         val first = node("first")
         val original = node("edited")
@@ -26,5 +37,7 @@ class ActionDraftTransactionTest {
         val committed = ActionDraftTransaction.commit(listOf(first, original), updated, 0)
         assertEquals(listOf("first", "edited"), committed.map { it.id.value })
         assertEquals(updated, committed[1])
+        assertEquals(original.enabled, committed[1].enabled)
+        assertEquals(original.delayBeforeMillis, committed[1].delayBeforeMillis)
     }
 }
