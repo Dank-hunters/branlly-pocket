@@ -18,6 +18,7 @@ import com.branlly.pocket.domain.model.SettingsPanel
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.SoundMode
 import com.branlly.pocket.domain.model.VolumeStream
+import com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint
 import com.branlly.pocket.platform.android.MediaPlaybackWaiter
 import com.branlly.pocket.platform.android.MediaWaitResult
 import com.branlly.pocket.platform.android.capabilities.AndroidCapability
@@ -169,16 +170,16 @@ class OpenRouteHandler(
         val packageName =
             (action.navigationPackage as? InputValue.Fixed<String>)?.value
                 ?: return listOf(ActionValidationError("runtime_value_unresolved", "Choisissez une application de navigation."))
-        val destination =
-            (action.destination as? InputValue.Fixed<String>)?.value
-                ?: return listOf(ActionValidationError("runtime_value_unresolved", "Indiquez une destination."))
+        val destination = (action.destination as? InputValue.Fixed<String>)?.value
         return buildList {
             if (!PACKAGE_NAME.matches(packageName)) {
                 add(ActionValidationError("invalid_package", "Le package de navigation est invalide."))
             } else if (!context.isPackageInstalled(packageName)) {
                 add(ActionValidationError("missing_package", "L’application de navigation n’est pas installée."))
             }
-            if (destination.isBlank()) add(ActionValidationError("missing_destination", "Indiquez une destination."))
+            if (action.destination is InputValue.Fixed && destination.isNullOrBlank()) {
+                add(ActionValidationError("missing_destination", "Indiquez une destination."))
+            }
             if (adapters.none { it.supports(NavigationTarget(packageName)) }) {
                 add(
                     ActionValidationError(
@@ -195,7 +196,38 @@ class OpenRouteHandler(
         context: ActionExecutionContext,
     ): ActionResult {
         val packageName = (action.navigationPackage as InputValue.Fixed<String>).value
-        val destination = (action.destination as InputValue.Fixed<String>).value.trim()
+        val destination =
+            when (val configured = action.destination) {
+                is InputValue.Fixed -> {
+                    configured.value.trim()
+                }
+
+                InputValue.AskAtRuntime, is InputValue.FromTrigger -> {
+                    context.workflowCheckpoint
+                        ?.takeIf {
+                            it.actionId == context.nodeId && it.executionId == context.executionId &&
+                                it.stateKey in setOf(ROUTE_DESTINATION_STATE, ROUTE_LAUNCH_STATE)
+                        }?.payload
+                        ?.get(ROUTE_DESTINATION_VALUE)
+                        ?.trim()
+                        .orEmpty()
+                }
+            }
+        if (destination.isBlank()) {
+            return ActionResult.UserActionRequired(
+                "Choisissez une destination.",
+                ActionWorkflowCheckpoint(
+                    actionId = context.nodeId,
+                    executionId = context.executionId,
+                    routineId = context.routineId,
+                    actionKind = ActionKind.OPEN_ROUTE,
+                    stateKey = ROUTE_DESTINATION_STATE,
+                    payload = emptyMap(),
+                    startedAtMillis = System.currentTimeMillis(),
+                    expiresAtMillis = System.currentTimeMillis() + 10 * 60 * 1_000L,
+                ),
+            )
+        }
         val target = NavigationTarget(packageName)
         val adapter =
             adapters.firstOrNull { it.supports(target) }
@@ -203,7 +235,33 @@ class OpenRouteHandler(
         val intent =
             adapter.buildRouteIntent(RouteRequest(target, destination, action.transportMode))
                 ?: return ActionResult.Failed("Impossible de construire l’itinéraire.")
-        return launcher.launch(intent, action.applicationName(), context)
+        return when (val launched = launcher.launch(intent, action.applicationName(), context)) {
+            is ActionResult.UserActionRequired -> {
+                launched.copy(
+                    workflowCheckpoint =
+                        ActionWorkflowCheckpoint(
+                            actionId = context.nodeId,
+                            executionId = context.executionId,
+                            routineId = context.routineId,
+                            actionKind = ActionKind.OPEN_ROUTE,
+                            stateKey = ROUTE_LAUNCH_STATE,
+                            payload = mapOf(ROUTE_DESTINATION_VALUE to destination),
+                            startedAtMillis = System.currentTimeMillis(),
+                            expiresAtMillis = System.currentTimeMillis() + 10 * 60 * 1_000L,
+                        ),
+                )
+            }
+
+            else -> {
+                launched
+            }
+        }
+    }
+
+    private companion object {
+        const val ROUTE_DESTINATION_STATE = "route_destination_v1"
+        const val ROUTE_DESTINATION_VALUE = "destination"
+        const val ROUTE_LAUNCH_STATE = "route_launch_v1"
     }
 
     private fun ShortcutAction.OpenRoute.applicationName(): String =

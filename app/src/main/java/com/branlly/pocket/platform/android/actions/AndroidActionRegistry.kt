@@ -150,6 +150,10 @@ object AndroidActionRegistry {
                     category = ActionCategory.OPEN,
                     editorKey = ActionEditorKey.ROUTE,
                     createDefault = { ShortcutAction.OpenRoute(InputValue.AskAtRuntime, InputValue.AskAtRuntime) },
+                    summary = { action ->
+                        val destination = (action.destination as? InputValue.Fixed<String>)?.value
+                        destination?.takeIf(String::isNotBlank) ?: "Destination demandée à l’exécution"
+                    },
                     handler =
                         OpenRouteHandler(
                             externalLauncher,

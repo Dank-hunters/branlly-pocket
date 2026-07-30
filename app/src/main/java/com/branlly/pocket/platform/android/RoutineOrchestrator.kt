@@ -1,6 +1,8 @@
 package com.branlly.pocket.platform.android
 
+import android.app.ActivityManager
 import android.content.Context
+import android.os.Process
 import com.branlly.pocket.data.ActionJsonCodecRegistry
 import com.branlly.pocket.data.PersistentRoutineExecutionStateStore
 import com.branlly.pocket.domain.execution.ContinuationClaim
@@ -37,6 +39,7 @@ object RoutineOrchestrator {
     suspend fun resume(
         context: Context,
         identity: ContinuationIdentity,
+        runtimeInput: Map<String, String> = emptyMap(),
         continuationTtlMillis: Long = DEFAULT_CONTINUATION_TTL_MILLIS,
     ): RoutineExecutionResult {
         val appContext = context.applicationContext
@@ -58,7 +61,9 @@ object RoutineOrchestrator {
                         continuation.nodeIndex,
                         continuation.nodeId,
                         continuation.continuationId,
-                        continuation.workflowCheckpoint,
+                        continuation.workflowCheckpoint?.let { checkpoint ->
+                            if (runtimeInput.isEmpty()) checkpoint else checkpoint.copy(payload = checkpoint.payload + runtimeInput)
+                        },
                         continuationTtlMillis,
                     )
                 }
@@ -164,13 +169,26 @@ object RoutineOrchestrator {
             }
             val notifications = AndroidContinuationNotificationGateway(context)
             claimedContinuationId?.let(notifications::remove)
-            notifications.post(continuation, result.reason)
+            if (result.actionKind == com.branlly.pocket.domain.model.ActionKind.OPEN_ROUTE && appIsVisible(context)) {
+                context.startActivity(
+                    ContinuationActivity.intent(context, continuation.identity()).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK),
+                )
+            } else {
+                notifications.post(continuation, result.reason)
+            }
             return result.copy(continuationId = continuation.continuationId)
         }
         store.finish(executionId)
         claimedContinuationId?.let { AndroidContinuationNotificationGateway(context).remove(it) }
         return result
     }
+
+    private fun appIsVisible(context: Context): Boolean =
+        context
+            .getSystemService(ActivityManager::class.java)
+            .runningAppProcesses
+            ?.firstOrNull { it.pid == Process.myPid() }
+            ?.importance == ActivityManager.RunningAppProcessInfo.IMPORTANCE_FOREGROUND
 
     private fun reject(
         notifications: AndroidContinuationNotificationGateway,
