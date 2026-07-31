@@ -9,7 +9,6 @@ import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.Condition
 import com.branlly.pocket.domain.model.ConnectionEvent
-import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.ErrorStrategy
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.LogicalOperator
@@ -36,10 +35,8 @@ import java.time.LocalTime
 
 private val Context.shortcutDataStore by preferencesDataStore(name = "saved_shortcuts")
 
-/** Historical creation modes are accepted only as storage compatibility and always open in the free editor. */
-internal fun normalizeStoredEditorMode(
-    @Suppress("UNUSED_PARAMETER") storedMode: String?,
-): EditorMode = EditorMode.ADVANCED
+/** Removes obsolete creation metadata while preserving the routine payload. */
+internal fun JSONObject.migrateLegacyEditorMode(): JSONObject = apply { remove("mode") }
 
 /** Persistance atomique, privée à l'application et exclue des sauvegardes Android. */
 class SavedShortcutStore(
@@ -133,7 +130,6 @@ class SavedShortcutStore(
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
             .put("nodes", JSONArray().apply { definition.nodes.forEach { put(encodeNode(it)) } })
-            .put("mode", definition.mode.name)
             .put("enabled", definition.enabled)
             .put("schemaVersion", definition.schemaVersion)
             .put("createdAt", definition.createdAt.toString())
@@ -141,7 +137,7 @@ class SavedShortcutStore(
 
     private fun decodeDefinition(value: JSONObject?): ShortcutDefinition? =
         runCatching {
-            val item = value ?: return null
+            val item = value?.migrateLegacyEditorMode() ?: return null
             if (item.optInt("version", LEGACY_STORAGE_VERSION) > CURRENT_STORAGE_VERSION) return null
             if (!item.has("version")) return decodeLegacy(item)
             val nodes = item.optJSONArray("nodes") ?: return null
@@ -158,8 +154,7 @@ class SavedShortcutStore(
                         decodeNode(nodes.optJSONObject(index))
                             ?: error("Invalid node at index $index")
                     },
-                // Legacy finalForegroundNodeId is intentionally ignored: order is now nodes-only.
-                mode = normalizeStoredEditorMode(item.optString("mode")),
+                // Legacy finalForegroundNodeId and editor mode are intentionally ignored.
                 enabled = item.optBoolean("enabled", false),
                 schemaVersion = item.optInt("schemaVersion", ShortcutDefinition.CURRENT_SCHEMA_VERSION),
                 createdAt = instant(item.optString("createdAt")),

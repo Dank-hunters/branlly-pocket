@@ -526,7 +526,7 @@ private fun HudRoutinePanel(
             Box(Modifier.width(1.dp).height(25.dp).background(HudColors.Grid))
             HudMetric("ACTIONS", shortcut.nodes.count { it.enabled }.toString(), Modifier.weight(0.72f))
             Box(Modifier.width(1.dp).height(25.dp).background(HudColors.Grid))
-            HudMetric("MODE", shortcut.mode.name, Modifier.weight(1f))
+            HudMetric("CATÉGORIE", shortcut.category.name, Modifier.weight(1f))
         }
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             HudPrimaryButton("Exécuter", onLaunch, Modifier.weight(1f))

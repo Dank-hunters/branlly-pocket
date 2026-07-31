@@ -38,7 +38,6 @@ data class ShortcutDefinition(
     val category: ShortcutCategory = ShortcutCategory.OTHER,
     val trigger: Trigger,
     val nodes: List<ActionNode>,
-    val mode: EditorMode = EditorMode.SIMPLE,
     val enabled: Boolean = false,
     val schemaVersion: Int = CURRENT_SCHEMA_VERSION,
     val createdAt: Instant = Instant.now(),
@@ -63,8 +62,6 @@ data class ShortcutDefinition(
 enum class ShortcutCategory { TRAVEL, WELLBEING, PRODUCTIVITY, COMMUNICATION, DEVICE, OTHER }
 
 enum class ShortcutAccentColor { BLUE, CYAN, VIOLET, PINK, RED, ORANGE, YELLOW, GREEN, MINT, WHITE, GRAY }
-
-enum class EditorMode { SIMPLE, ADVANCED }
 
 data class ActionNode(
     val id: NodeId = NodeId.new(),

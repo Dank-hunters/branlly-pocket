@@ -7,7 +7,6 @@ import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.execution.RoutineValidator
 import com.branlly.pocket.domain.model.ActionNode
-import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAccentColor
@@ -272,7 +271,7 @@ class EditorViewModel(
             return
         }
         viewModelScope.launch {
-            store.save(draft.copy(name = draft.name.trim(), mode = EditorMode.ADVANCED))
+            store.save(draft.copy(name = draft.name.trim()))
             BranllyPocketWidget.refreshAll(getApplication())
             _state.update { state -> EditorUiState(savedShortcuts = state.savedShortcuts, message = "Raccourci enregistré.") }
         }
@@ -280,7 +279,7 @@ class EditorViewModel(
 
     fun editSaved(shortcut: ShortcutDefinition) {
         _state.update {
-            it.copy(screen = Screen.EDITOR, draft = shortcut.copy(mode = EditorMode.ADVANCED), message = null)
+            it.copy(screen = Screen.EDITOR, draft = shortcut, message = null)
         }
     }
 
@@ -303,24 +302,29 @@ class EditorViewModel(
         trigger: Trigger,
         configureTrigger: Boolean = false,
     ) {
-        _state.value =
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Nouveau raccourci",
-                        trigger = trigger,
-                        nodes = emptyList(),
-                        mode = EditorMode.ADVANCED,
-                    ),
-                triggerConfigurationVisible = configureTrigger,
-            )
+        _state.update { state -> state.openFreeEditor(trigger, configureTrigger) }
     }
 
     private fun updateNodes(transform: (List<ActionNode>) -> List<ActionNode>) {
         _state.update { state -> state.copy(draft = state.draft?.let { it.copy(nodes = transform(it.nodes)) }) }
     }
 }
+
+internal fun EditorUiState.openFreeEditor(
+    trigger: Trigger,
+    configureTrigger: Boolean = false,
+): EditorUiState =
+    EditorUiState(
+        screen = Screen.EDITOR,
+        draft =
+            ShortcutDefinition(
+                name = "Nouveau raccourci",
+                trigger = trigger,
+                nodes = emptyList(),
+            ),
+        triggerConfigurationVisible = configureTrigger,
+        savedShortcuts = savedShortcuts,
+    )
 
 data class EditorUiState(
     val screen: Screen = Screen.HOME,
