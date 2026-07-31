@@ -99,6 +99,88 @@ class PlayMediaCoordinatorResumeTest {
             assertEquals(0, fixture.launchCalls)
         }
 
+    @Test
+    fun `provider search opens only after direct media session failure`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.commandResult = MediaSessionCommandResult.NotSupported("unsupported")
+            fixture.completeOnLaunch = true
+
+            val result = fixture.coordinator().execute(action(), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(1, fixture.commandCalls)
+            assertEquals(1, fixture.launchCalls)
+        }
+
+    @Test
+    fun `provider search also opens after direct media session runtime failure`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.commandResult = MediaSessionCommandResult.Failed("rejected")
+            fixture.completeOnLaunch = true
+
+            val result = fixture.coordinator().execute(action(), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(1, fixture.commandCalls)
+            assertEquals(1, fixture.launchCalls)
+        }
+
+    @Test
+    fun `applied media session command is not replayed from checkpoint`() =
+        runBlocking {
+            val fixture = Fixture(MediaObservedOutcome.PlaybackStarted("new", false, false))
+            val applied =
+                checkpoint(
+                    state = MediaExecutionState.AWAIT_OUTCOME,
+                    operation =
+                        MediaOperation(
+                            "media_session",
+                            MediaOperationType.MEDIA_SESSION,
+                            true,
+                            MediaOperationStatus.AWAITING_OUTCOME,
+                            effectApplied = true,
+                            executionCount = 1,
+                        ),
+                    continuationCreated = false,
+                    continuationConsumed = false,
+                )
+
+            val result = fixture.coordinator().execute(action(), context(), workflow(applied))
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(0, fixture.commandCalls)
+            assertEquals(0, fixture.launchCalls)
+        }
+
+    @Test
+    fun `unresolved applied media session checkpoint is not replayed`() =
+        runBlocking {
+            val fixture = Fixture()
+            val applied =
+                checkpoint(
+                    state = MediaExecutionState.AWAIT_OUTCOME,
+                    operation =
+                        MediaOperation(
+                            "media_session",
+                            MediaOperationType.MEDIA_SESSION,
+                            true,
+                            MediaOperationStatus.AWAITING_OUTCOME,
+                            effectApplied = true,
+                            executionCount = 1,
+                        ),
+                    continuationCreated = false,
+                    continuationConsumed = false,
+                    automaticDeadlineMillis = 100,
+                )
+
+            val result = fixture.coordinator().execute(action(), context(), workflow(applied))
+
+            assertEquals(ActionResult.TimedOut("Aucune opération média restante."), result)
+            assertEquals(0, fixture.commandCalls)
+        }
+
     private class Fixture(
         initialOutcome: MediaObservedOutcome? = null,
     ) {
@@ -110,6 +192,8 @@ class PlayMediaCoordinatorResumeTest {
         var closeCalls = 0
         var guidanceShows = 0
         var completeOnCommand = false
+        var completeOnLaunch = false
+        var commandResult: MediaSessionCommandResult = MediaSessionCommandResult.Sent("playFromSearch")
 
         fun coordinator() =
             PlayMediaCoordinator(
@@ -123,6 +207,7 @@ class PlayMediaCoordinatorResumeTest {
                             executionContext: ActionExecutionContext,
                         ): ActionResult {
                             launchCalls++
+                            if (completeOnLaunch) outcome.complete(MediaObservedOutcome.PlaybackStarted("new", false, false))
                             return ActionResult.Completed
                         }
                     },
@@ -136,13 +221,13 @@ class PlayMediaCoordinatorResumeTest {
 
                         override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? = null
 
-                        override fun buildSearchIntent(request: MediaOpenRequest): Intent? = null
+                        override fun buildSearchIntent(request: MediaOpenRequest): Intent = Intent("test.search")
                     },
                 commands =
                     MediaSessionCommandGateway {
                         commandCalls++
                         if (completeOnCommand) outcome.complete(MediaObservedOutcome.PlaybackStarted("new", false, false))
-                        MediaSessionCommandResult.Sent("play")
+                        commandResult
                     },
                 observerFactory = { _, restored ->
                     restoredBaseline = restored
@@ -193,12 +278,13 @@ class PlayMediaCoordinatorResumeTest {
         continuationCreated: Boolean = true,
         continuationConsumed: Boolean = false,
         manualShown: Boolean = false,
+        automaticDeadlineMillis: Long = 500,
     ) = MediaExecutionCheckpoint(
         executionId = "execution",
         routineId = ShortcutId("routine"),
         nodeId = NodeId("node"),
         startedAtMillis = 10,
-        automaticDeadlineMillis = 500,
+        automaticDeadlineMillis = automaticDeadlineMillis,
         globalDeadlineMillis = 1_000,
         state = state,
         stateVersion = 3,
