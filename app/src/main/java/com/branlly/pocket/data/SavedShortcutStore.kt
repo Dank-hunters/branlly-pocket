@@ -9,7 +9,6 @@ import com.branlly.pocket.domain.model.ActionNode
 import com.branlly.pocket.domain.model.ChargerEvent
 import com.branlly.pocket.domain.model.Condition
 import com.branlly.pocket.domain.model.ConnectionEvent
-import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.ErrorStrategy
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.LogicalOperator
@@ -35,6 +34,9 @@ import java.time.Instant
 import java.time.LocalTime
 
 private val Context.shortcutDataStore by preferencesDataStore(name = "saved_shortcuts")
+
+/** Removes obsolete creation metadata while preserving the routine payload. */
+internal fun JSONObject.migrateLegacyEditorMode(): JSONObject = apply { remove("mode") }
 
 /** Persistance atomique, privée à l'application et exclue des sauvegardes Android. */
 class SavedShortcutStore(
@@ -72,8 +74,7 @@ class SavedShortcutStore(
     fun encodeSnapshot(shortcut: ShortcutDefinition): String = encodeDefinition(shortcut).toString()
 
     /** Restores a continuation snapshot without assigning a new routine id. */
-    fun decodeSnapshot(raw: String): ShortcutDefinition? =
-        runCatching { decodeDefinition(JSONObject(raw)) }.getOrNull()
+    fun decodeSnapshot(raw: String): ShortcutDefinition? = runCatching { decodeDefinition(JSONObject(raw)) }.getOrNull()
 
     /** Invalid or unsupported documents are rejected without altering persisted routines. */
     fun import(raw: String): ShortcutDefinition? =
@@ -129,7 +130,6 @@ class SavedShortcutStore(
             .put("category", definition.category.name)
             .put("trigger", encodeTrigger(definition.trigger))
             .put("nodes", JSONArray().apply { definition.nodes.forEach { put(encodeNode(it)) } })
-            .put("mode", definition.mode.name)
             .put("enabled", definition.enabled)
             .put("schemaVersion", definition.schemaVersion)
             .put("createdAt", definition.createdAt.toString())
@@ -137,7 +137,7 @@ class SavedShortcutStore(
 
     private fun decodeDefinition(value: JSONObject?): ShortcutDefinition? =
         runCatching {
-            val item = value ?: return null
+            val item = value?.migrateLegacyEditorMode() ?: return null
             if (item.optInt("version", LEGACY_STORAGE_VERSION) > CURRENT_STORAGE_VERSION) return null
             if (!item.has("version")) return decodeLegacy(item)
             val nodes = item.optJSONArray("nodes") ?: return null
@@ -154,8 +154,7 @@ class SavedShortcutStore(
                         decodeNode(nodes.optJSONObject(index))
                             ?: error("Invalid node at index $index")
                     },
-                // Legacy finalForegroundNodeId is intentionally ignored: order is now nodes-only.
-                mode = enumValue(item.optString("mode"), EditorMode.SIMPLE),
+                // Legacy finalForegroundNodeId and editor mode are intentionally ignored.
                 enabled = item.optBoolean("enabled", false),
                 schemaVersion = item.optInt("schemaVersion", ShortcutDefinition.CURRENT_SCHEMA_VERSION),
                 createdAt = instant(item.optString("createdAt")),
@@ -343,8 +342,7 @@ class SavedShortcutStore(
 
     private fun encodeAction(action: ShortcutAction): JSONObject = ActionJsonCodecRegistry.DEFAULT.encode(action)
 
-    private fun decodeAction(item: JSONObject?): ShortcutAction? =
-        item?.let(ActionJsonCodecRegistry.DEFAULT::decode)
+    private fun decodeAction(item: JSONObject?): ShortcutAction? = item?.let(ActionJsonCodecRegistry.DEFAULT::decode)
 
     private fun encodeErrorStrategy(strategy: ErrorStrategy): JSONObject =
         JSONObject().apply {

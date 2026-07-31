@@ -1,5 +1,13 @@
 # Journal des modifications
 
+## 0.15.7
+
+### Nouveautés et améliorations
+
+- La création d’une routine ouvre désormais directement l’éditeur libre depuis l’accueil, la navigation et le widget.
+- Les anciens parcours « Création guidée » et « Blueprint » ont été entièrement retirés.
+- Les routines existantes conservent leurs actions et restent modifiables, y compris lorsqu’elles contiennent une ancienne métadonnée de mode.
+
 ## 0.15.6
 
 ### Corrections

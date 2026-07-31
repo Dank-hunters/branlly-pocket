@@ -7,8 +7,6 @@ import com.branlly.pocket.data.SavedShortcutStore
 import com.branlly.pocket.domain.catalog.ActionDescriptor
 import com.branlly.pocket.domain.execution.RoutineValidator
 import com.branlly.pocket.domain.model.ActionNode
-import com.branlly.pocket.domain.model.ConnectionEvent
-import com.branlly.pocket.domain.model.EditorMode
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAccentColor
@@ -17,11 +15,9 @@ import com.branlly.pocket.domain.model.ShortcutCategory
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.ShortcutId
 import com.branlly.pocket.domain.model.Trigger
-import com.branlly.pocket.domain.model.VolumeStream
 import com.branlly.pocket.platform.android.BranllyPocketWidget
 import com.branlly.pocket.platform.android.actions.AndroidActionRegistry
 import com.branlly.pocket.platform.android.actions.AndroidActionValidationContext
-import com.branlly.pocket.platform.android.actions.BuiltInProviderCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -46,71 +42,7 @@ class EditorViewModel(
         }
     }
 
-    fun startFree() = openEditor(Trigger.ManualButton, mode = EditorMode.ADVANCED)
-
-    fun startGuided(trigger: Trigger) {
-        _state.update { state ->
-            state.copy(
-                screen = Screen.ACTION_CHOICE,
-                draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList()),
-                triggerConfigurationVisible = false,
-            )
-        }
-    }
-
-    fun useBluetoothAction() {
-        val node = ActionNode(action = ShortcutAction.EnableBluetooth())
-        _state.update { state ->
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Bluetooth",
-                        category = ShortcutCategory.OTHER,
-                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                        nodes = listOf(node),
-                    ),
-                selectedNodeId = node.id,
-                savedShortcuts = state.savedShortcuts,
-            )
-        }
-    }
-
-    fun usePlayMediaAction() {
-        val node = ActionNode(action = ShortcutAction.PlayMedia("", "", searchQuery = ""))
-        _state.update { state ->
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Jouer un média",
-                        category = ShortcutCategory.WELLBEING,
-                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                        nodes = listOf(node),
-                    ),
-                selectedNodeId = node.id,
-                savedShortcuts = state.savedShortcuts,
-            )
-        }
-    }
-
-    fun useMusicBlueprint() {
-        val node = ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime))
-        _state.update { state ->
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Mode musique",
-                        category = ShortcutCategory.WELLBEING,
-                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                        nodes = listOf(node),
-                    ),
-                selectedNodeId = node.id,
-                savedShortcuts = state.savedShortcuts,
-            )
-        }
-    }
+    fun startFree() = openEditor(Trigger.ManualButton)
 
     fun receiveSharedMediaLink(link: String) {
         val node =
@@ -138,86 +70,6 @@ class EditorViewModel(
         }
     }
 
-    fun useDepartureBlueprint() {
-        val node =
-            ActionNode(
-                action =
-                    ShortcutAction.OpenRoute(
-                        navigationPackage = InputValue.Fixed(BuiltInProviderCatalog.defaultNavigationPackage),
-                        destination = InputValue.Fixed(""),
-                    ),
-            )
-        _state.update { state ->
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Nouvel itinéraire",
-                        category = ShortcutCategory.TRAVEL,
-                        trigger = state.draft?.trigger ?: Trigger.ManualButton,
-                        nodes = listOf(node),
-                    ),
-                selectedNodeId = node.id,
-                savedShortcuts = state.savedShortcuts,
-            )
-        }
-    }
-
-    fun useTemplate(name: String) {
-        val category =
-            when (name) {
-                "Départ au travail", "Retour à la maison", "Voyage", "Mode conduite" -> ShortcutCategory.TRAVEL
-                "Musique", "Salle de sport", "Coucher", "Mode concentration" -> ShortcutCategory.WELLBEING
-                else -> ShortcutCategory.COMMUNICATION
-            }
-        val actions =
-            when (name) {
-                "Mode concentration", "Coucher" -> {
-                    listOf(ActionNode(action = ShortcutAction.SetSoundMode(com.branlly.pocket.domain.model.SoundMode.DO_NOT_DISTURB)))
-                }
-
-                "Mode conduite" -> {
-                    listOf(
-                        ActionNode(action = ShortcutAction.SetVolume(VolumeStream.MEDIA, InputValue.Fixed(70))),
-                        ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime)),
-                        ActionNode(action = ShortcutAction.OpenRoute(InputValue.AskAtRuntime, InputValue.AskAtRuntime)),
-                    )
-                }
-
-                else -> {
-                    listOf(ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime)))
-                }
-            }
-        _state.update { state ->
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft = ShortcutDefinition(name = name, category = category, trigger = Trigger.ManualButton, nodes = actions),
-                selectedNodeId = actions.firstOrNull()?.id,
-                savedShortcuts = state.savedShortcuts,
-            )
-        }
-    }
-
-    fun useCarBlueprint() {
-        _state.value =
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft =
-                    ShortcutDefinition(
-                        name = "Mode voiture",
-                        category = ShortcutCategory.TRAVEL,
-                        trigger = Trigger.Bluetooth(null, "Appareil à choisir", ConnectionEvent.CONNECTED),
-                        nodes =
-                            listOf(
-                                ActionNode(action = ShortcutAction.SetVolume(VolumeStream.MEDIA, InputValue.Fixed(70))),
-                                ActionNode(action = ShortcutAction.OpenApplication(InputValue.AskAtRuntime)),
-                                ActionNode(action = ShortcutAction.Wait(2_000)),
-                                ActionNode(action = ShortcutAction.OpenRoute(InputValue.AskAtRuntime, InputValue.AskAtRuntime)),
-                            ),
-                    ),
-            )
-    }
-
     fun importRoutine(raw: String) {
         val imported = store.import(raw)
         if (imported == null) {
@@ -237,11 +89,9 @@ class EditorViewModel(
 
     fun exportRoutine(shortcut: ShortcutDefinition): String = store.export(shortcut)
 
-    fun showStart() = _state.update { state -> EditorUiState(screen = Screen.START, savedShortcuts = state.savedShortcuts) }
+    fun showHome() = _state.update { state -> EditorUiState(screen = Screen.HOME, savedShortcuts = state.savedShortcuts) }
 
-    fun showGuidedTriggers() = _state.update { it.copy(screen = Screen.GUIDED_TRIGGER) }
-
-    fun showBlueprints() = _state.update { it.copy(screen = Screen.BLUEPRINTS) }
+    fun showStart() = startFree()
 
     fun showLibrary(index: Int) =
         _state.update {
@@ -451,20 +301,30 @@ class EditorViewModel(
     private fun openEditor(
         trigger: Trigger,
         configureTrigger: Boolean = false,
-        mode: EditorMode = EditorMode.SIMPLE,
     ) {
-        _state.value =
-            EditorUiState(
-                screen = Screen.EDITOR,
-                draft = ShortcutDefinition(name = "Nouveau raccourci", trigger = trigger, nodes = emptyList(), mode = mode),
-                triggerConfigurationVisible = configureTrigger,
-            )
+        _state.update { state -> state.openFreeEditor(trigger, configureTrigger) }
     }
 
     private fun updateNodes(transform: (List<ActionNode>) -> List<ActionNode>) {
         _state.update { state -> state.copy(draft = state.draft?.let { it.copy(nodes = transform(it.nodes)) }) }
     }
 }
+
+internal fun EditorUiState.openFreeEditor(
+    trigger: Trigger,
+    configureTrigger: Boolean = false,
+): EditorUiState =
+    EditorUiState(
+        screen = Screen.EDITOR,
+        draft =
+            ShortcutDefinition(
+                name = "Nouveau raccourci",
+                trigger = trigger,
+                nodes = emptyList(),
+            ),
+        triggerConfigurationVisible = configureTrigger,
+        savedShortcuts = savedShortcuts,
+    )
 
 data class EditorUiState(
     val screen: Screen = Screen.HOME,
@@ -485,7 +345,7 @@ data class EditorUiState(
         get() = emptyList()
 }
 
-enum class Screen { HOME, START, GUIDED_TRIGGER, ACTION_CHOICE, BLUEPRINTS, EDITOR }
+enum class Screen { HOME, EDITOR }
 
 private fun Trigger.hasConfiguration(): Boolean =
     when (this) {

@@ -12,7 +12,7 @@ import org.junit.Test
 
 class ShortcutModelTest {
     @Test
-    fun `blueprints and editor actions share the same model`() {
+    fun `free editor actions use the generic shortcut model`() {
         val shortcut =
             ShortcutDefinition(
                 name = "Test",
