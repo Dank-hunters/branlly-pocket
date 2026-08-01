@@ -120,7 +120,14 @@ class PlayMediaCoordinator(
             val active = session.currentOperation()
             if (active?.status == MediaOperationStatus.AWAITING_OUTCOME || active?.status == MediaOperationStatus.EFFECT_APPLIED) {
                 val observed = awaitAutomaticOutcome(session, outcome)
-                if (observed != null) return finish(session, observed)
+                if (observed != null) {
+                    logObservedOutcome(context, observed)
+                    return finish(session, observed)
+                }
+                context.logger.log(
+                    "PLAY_MEDIA_OUTCOME_TIMEOUT",
+                    mapOf("nodeId" to context.nodeId.value, "operationType" to active.type.name),
+                )
                 session.finishOperation(active.id, MediaOperationStatus.COMPLETED)
                 continue
             }
@@ -157,7 +164,14 @@ class PlayMediaCoordinator(
                     }
                     session.finishOperation(operation.id, MediaOperationStatus.AWAITING_OUTCOME)
                     val observed = awaitAutomaticOutcome(session, outcome)
-                    if (observed != null) return finish(session, observed)
+                    if (observed != null) {
+                        logObservedOutcome(context, observed)
+                        return finish(session, observed)
+                    }
+                    context.logger.log(
+                        "PLAY_MEDIA_OUTCOME_TIMEOUT",
+                        mapOf("nodeId" to context.nodeId.value, "operationType" to operation.type.name),
+                    )
                     session.finishOperation(operation.id, MediaOperationStatus.COMPLETED)
                 }
             }
@@ -237,6 +251,10 @@ class PlayMediaCoordinator(
             }
 
             MediaOperationType.PROVIDER_SEARCH -> {
+                context.logger.log(
+                    "PLAY_MEDIA_PROVIDER_SEARCH_FALLBACK",
+                    mapOf("nodeId" to context.nodeId.value, "targetPackage" to action.targetPackage),
+                )
                 launch(adapter.buildSearchIntent(action.request()), action.targetAppLabel, context)
             }
 
@@ -248,6 +266,22 @@ class PlayMediaCoordinator(
                 Attempt.Failed
             }
         }
+
+    private fun logObservedOutcome(
+        context: ActionExecutionContext,
+        outcome: MediaObservedOutcome,
+    ) {
+        if (outcome is MediaObservedOutcome.PlaybackStarted) {
+            context.logger.log(
+                "PLAY_MEDIA_PLAYING_OBSERVED",
+                mapOf(
+                    "nodeId" to context.nodeId.value,
+                    "sessionId" to outcome.sessionId,
+                    "contentConfirmed" to outcome.contentConfirmed,
+                ),
+            )
+        }
+    }
 
     private suspend fun launch(
         intent: android.content.Intent?,

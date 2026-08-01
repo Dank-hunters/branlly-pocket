@@ -1,5 +1,14 @@
 # Journal des modifications
 
+## 0.15.8
+
+### Corrections
+
+- PLAY_MEDIA sélectionne désormais une MediaSession compatible appartenant exactement au lecteur configuré.
+- Une recherche directe utilise `playFromSearch` en priorité et n’ouvre le lecteur qu’après un échec réel ou l’absence de lecture confirmée.
+- Les sessions incompatibles et les reprises de checkpoint ne provoquent plus de commande générique ou rejouée.
+- Une journalisation ciblée précise les capacités MediaSession, la commande envoyée et la raison d’un éventuel fallback.
+
 ## 0.15.7
 
 ### Nouveautés et améliorations
