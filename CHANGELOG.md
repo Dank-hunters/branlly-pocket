@@ -1,5 +1,19 @@
 # Journal des modifications
 
+## 0.15.9
+
+### Corrections
+
+- PLAY_MEDIA confirme désormais un changement de contenu sur une MediaSession déjà en lecture avant la commande directe.
+- Lorsque cette confirmation est fiable, la recherche de secours n’ouvre pas le lecteur.
+- Le fallback reste utilisé si aucune transition ou modification de contenu vérifiable n’est disponible.
+- Les checkpoints média conservent les données de corrélation nécessaires ; les anciens checkpoints restent lisibles.
+
+### Validation
+
+- La correction est couverte par des tests automatisés de baseline, checkpoint et coordination média.
+- Elle n’a pas encore été validée sur un lecteur réel par test sur téléphone.
+
 ## 0.15.8
 
 ### Corrections
