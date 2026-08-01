@@ -82,6 +82,7 @@ class AndroidMediaCapabilityResolver(
 sealed interface MediaSessionCommandResult {
     data class Sent(
         val command: String,
+        val sessionId: String? = null,
     ) : MediaSessionCommandResult
 
     data class NotSupported(
@@ -255,7 +256,7 @@ class AndroidMediaSessionCommandGateway(
         return runCatching {
             val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, transport)
             Log.i(TAG, "$sent envoyé package=${action.targetPackage}")
-            MediaSessionCommandResult.Sent(sent)
+            MediaSessionCommandResult.Sent(sent, controllers[selection.index].sessionToken.hashCode().toString())
         }.getOrElse {
             Log.w(TAG, "Commande MediaSession refusée", it)
             MediaSessionCommandResult.Failed(it.message ?: "Commande MediaSession refusée.")

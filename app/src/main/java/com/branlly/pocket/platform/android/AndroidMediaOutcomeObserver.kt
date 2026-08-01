@@ -8,14 +8,20 @@ import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.os.Handler
 import android.os.Looper
+import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.branlly.pocket.domain.media.MediaBaselineMetadataState
 import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
+import com.branlly.pocket.domain.media.MediaBaselineSession
+import com.branlly.pocket.domain.media.MediaContentFingerprint
 import com.branlly.pocket.domain.media.MediaObservedOutcome
+import com.branlly.pocket.domain.media.MediaObservedSession
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.media.MediaSessionBaseline
+import com.branlly.pocket.domain.media.confirmDirectPlayback
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 
@@ -32,7 +38,45 @@ class AndroidMediaOutcomeObserver(
     private val closed = AtomicBoolean(false)
     private var cleanup: (() -> Unit)? = null
 
+    @Volatile private var operationDispatched = false
+
+    @Volatile private var commandedSessionId: String? = null
+
+    @Volatile private var inspectSessions: (() -> Unit)? = null
+
+    @Volatile private var preDispatchSessions: List<MediaBaselineSession>? = null
+
+    @Volatile private var preDispatchCaptureFailed = false
+    private val unconfirmedSessions = mutableSetOf<String>()
+
     override val baseline: MediaSessionBaseline = restoredBaseline ?: captureBaseline()
+
+    override fun capturePreDispatchState() {
+        operationDispatched = false
+        commandedSessionId = null
+        val captured =
+            runCatching {
+                manager
+                    .getActiveSessions(component)
+                    .filter { it.packageName == targetPackage }
+                    .map(::baselineSession)
+            }
+        preDispatchSessions = captured.getOrNull()
+        preDispatchCaptureFailed = captured.isFailure
+        if (preDispatchCaptureFailed) {
+            Log.w(TAG, "Pre-dispatch baseline unavailable; direct confirmation disabled", captured.exceptionOrNull())
+        } else {
+            Log.i(TAG, "Pre-dispatch baseline sessions=${preDispatchSessions?.size ?: 0}")
+        }
+    }
+
+    override fun onOperationDispatched(commandedSessionId: String?) {
+        this.commandedSessionId = commandedSessionId
+        operationDispatched = true
+        synchronized(unconfirmedSessions) { unconfirmedSessions.clear() }
+        Log.i(TAG, "Operation dispatched session=${commandedSessionId ?: "unscoped"}")
+        handler.post { inspectSessions?.invoke() }
+    }
 
     override suspend fun awaitOutcome(timeoutMillis: Long): MediaObservedOutcome {
         if (closed.get()) return MediaObservedOutcome.Unavailable("L’observateur média est fermé.")
@@ -46,7 +90,7 @@ class AndroidMediaOutcomeObserver(
         }
         return withTimeoutOrNull(timeoutMillis) {
             suspendCancellableCoroutine { continuation ->
-                val callbacks = mutableMapOf<MediaController, MediaController.Callback>()
+                val callbacks = ConcurrentHashMap<MediaController, MediaController.Callback>()
                 lateinit var sessionsListener: MediaSessionManager.OnActiveSessionsChangedListener
                 val finished = AtomicBoolean(false)
 
@@ -56,6 +100,7 @@ class AndroidMediaOutcomeObserver(
                     callbacks.clear()
                     runCatching { manager.removeOnActiveSessionsChangedListener(sessionsListener) }
                     cleanup = null
+                    inspectSessions = null
                 }
 
                 fun complete(outcome: MediaObservedOutcome) {
@@ -64,25 +109,52 @@ class AndroidMediaOutcomeObserver(
                     continuation.resume(outcome)
                 }
 
-                fun observed(controller: MediaController): MediaObservedOutcome.PlaybackStarted? {
-                    if (controller.packageName != targetPackage ||
-                        controller.playbackState?.state != PlaybackState.STATE_PLAYING
-                    ) {
+                fun observed(
+                    controller: MediaController,
+                    currentSessionIds: Set<String>,
+                ): MediaObservedOutcome.PlaybackStarted? {
+                    val id = controller.sessionToken.hashCode().toString()
+                    val snapshot =
+                        MediaObservedSession(
+                            sessionId = id,
+                            packageName = controller.packageName,
+                            playbackState = controller.playbackState.toBaselineState(),
+                            content = controller.contentFingerprint(),
+                        )
+                    if (preDispatchCaptureFailed) return null
+                    val proof =
+                        baseline.copy(sessions = preDispatchSessions ?: baseline.sessions).confirmDirectPlayback(
+                            observed = snapshot,
+                            targetPackage = targetPackage,
+                            commandedSessionId = commandedSessionId,
+                            commandDispatched = operationDispatched,
+                            commandedSessionStillPresent = commandedSessionId in currentSessionIds,
+                        )
+                    if (proof == null) {
+                        if (operationDispatched && snapshot.playbackState == MediaBaselinePlaybackState.PLAYING &&
+                            synchronized(unconfirmedSessions) { unconfirmedSessions.add(id) }
+                        ) {
+                            Log.i(TAG, "Target session remains PLAYING without reliable content change session=$id")
+                        }
                         return null
                     }
-                    val id = controller.sessionToken.hashCode().toString()
-                    if (id in baseline.playingSessionIds) return null
-                    return MediaObservedOutcome.PlaybackStarted(id, contentConfirmed = false, preexisting = false)
+                    Log.i(TAG, "Direct media confirmed proof=$proof session=$id")
+                    return MediaObservedOutcome.PlaybackStarted(
+                        sessionId = id,
+                        contentConfirmed = proof.contains("content_changed"),
+                        preexisting = id in baseline.playingSessionIds,
+                        proof = proof,
+                    )
                 }
 
                 fun observe(sessions: List<MediaController>) {
                     if (finished.get()) return
-                    sessions
-                        .filter { it.packageName == targetPackage }
-                        .firstNotNullOfOrNull(::observed)
+                    val targets = sessions.filter { it.packageName == targetPackage }
+                    val currentSessionIds = targets.mapTo(linkedSetOf()) { it.sessionToken.hashCode().toString() }
+                    targets
+                        .firstNotNullOfOrNull { observed(it, currentSessionIds) }
                         ?.let(::complete)
                         ?.also { return }
-                    val targets = sessions.filter { it.packageName == targetPackage }
                     callbacks.filterKeys { it !in targets }.forEach { (controller, callback) ->
                         runCatching { controller.unregisterCallback(callback) }
                         callbacks.remove(controller)
@@ -91,11 +163,11 @@ class AndroidMediaOutcomeObserver(
                         val callback =
                             object : MediaController.Callback() {
                                 override fun onPlaybackStateChanged(state: PlaybackState?) {
-                                    observed(controller)?.let(::complete)
+                                    runCatching { manager.getActiveSessions(component) }.onSuccess(::observe)
                                 }
 
                                 override fun onMetadataChanged(metadata: android.media.MediaMetadata?) {
-                                    observed(controller)?.let(::complete)
+                                    runCatching { manager.getActiveSessions(component) }.onSuccess(::observe)
                                 }
 
                                 override fun onSessionDestroyed() {
@@ -111,10 +183,19 @@ class AndroidMediaOutcomeObserver(
                         callbacks[controller] = callback
                         runCatching { controller.registerCallback(callback, handler) }
                             .onFailure { complete(MediaObservedOutcome.Unavailable(it.message ?: "Callback média indisponible.")) }
+                        if (finished.get()) {
+                            callbacks.remove(controller, callback)
+                            runCatching { controller.unregisterCallback(callback) }
+                        }
                     }
                 }
 
                 sessionsListener = MediaSessionManager.OnActiveSessionsChangedListener { observe(it.orEmpty()) }
+                inspectSessions = {
+                    runCatching { manager.getActiveSessions(component) }
+                        .onSuccess(::observe)
+                        .onFailure { complete(MediaObservedOutcome.Unavailable(it.message ?: "Session média indisponible.")) }
+                }
                 cleanup = ::dispose
                 continuation.invokeOnCancellation { dispose() }
                 try {
@@ -149,6 +230,14 @@ class AndroidMediaOutcomeObserver(
         val album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM)
         val uri = metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_URI)
         val metadataCount = listOf(title, artist, album, uri).count { !it.isNullOrBlank() }
+        val baselineSessions = sessions.map(::baselineSession)
+        Log.i(
+            TAG,
+            "Baseline targetSessions=${baselineSessions.size} playing=${baselineSessions.count {
+                it.playbackState == MediaBaselinePlaybackState.PLAYING
+            }} " +
+                "contentFingerprints=${baselineSessions.count { it.content.isComparable() }}",
+        )
         return MediaSessionBaseline(
             playingSessionIds =
                 sessions
@@ -178,6 +267,46 @@ class AndroidMediaOutcomeObserver(
                     4 -> MediaBaselineMetadataState.COMPLETE
                     else -> MediaBaselineMetadataState.PARTIAL
                 },
+            sessions = baselineSessions,
         )
+    }
+
+    private fun baselineSession(controller: MediaController): MediaBaselineSession =
+        MediaBaselineSession(
+            sessionId = controller.sessionToken.hashCode().toString(),
+            playbackState = controller.playbackState.toBaselineState(),
+            content = controller.contentFingerprint(),
+        )
+
+    private fun PlaybackState?.toBaselineState(): MediaBaselinePlaybackState =
+        when (this?.state) {
+            null -> MediaBaselinePlaybackState.NONE
+            PlaybackState.STATE_STOPPED -> MediaBaselinePlaybackState.STOPPED
+            PlaybackState.STATE_PAUSED -> MediaBaselinePlaybackState.PAUSED
+            PlaybackState.STATE_PLAYING -> MediaBaselinePlaybackState.PLAYING
+            else -> MediaBaselinePlaybackState.UNKNOWN
+        }
+
+    private fun MediaController.contentFingerprint(): MediaContentFingerprint {
+        val metadata = metadata
+        val queueId =
+            playbackState?.activeQueueItemId?.takeIf {
+                it !=
+                    android.media.session.MediaSession.QueueItem.UNKNOWN_ID
+                        .toLong()
+            }
+        return MediaContentFingerprint(
+            mediaId = metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_ID),
+            activeQueueItemId = queueId,
+            title = metadata?.getString(MediaMetadata.METADATA_KEY_TITLE),
+            artist = metadata?.getString(MediaMetadata.METADATA_KEY_ARTIST),
+            album = metadata?.getString(MediaMetadata.METADATA_KEY_ALBUM),
+            durationMillis = metadata?.getLong(MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0 },
+            mediaUri = metadata?.getString(MediaMetadata.METADATA_KEY_MEDIA_URI),
+        )
+    }
+
+    private companion object {
+        const val TAG = "BranllyPlayMedia"
     }
 }

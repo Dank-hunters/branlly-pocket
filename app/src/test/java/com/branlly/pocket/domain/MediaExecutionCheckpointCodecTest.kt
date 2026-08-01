@@ -2,6 +2,8 @@ package com.branlly.pocket.domain
 
 import com.branlly.pocket.domain.media.MediaBaselineMetadataState
 import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
+import com.branlly.pocket.domain.media.MediaBaselineSession
+import com.branlly.pocket.domain.media.MediaContentFingerprint
 import com.branlly.pocket.domain.media.MediaExecutionCheckpoint
 import com.branlly.pocket.domain.media.MediaExecutionCheckpointCodec
 import com.branlly.pocket.domain.media.MediaExecutionPlan
@@ -12,6 +14,7 @@ import com.branlly.pocket.domain.media.MediaOperationType
 import com.branlly.pocket.domain.media.MediaSessionBaseline
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutId
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Test
@@ -102,6 +105,71 @@ class MediaExecutionCheckpointCodecTest {
         assertEquals(true, restored?.continuationConsumed)
         assertEquals(checkpoint.continuationKey, restored?.continuationKey)
         assertEquals(true, restored?.manualGuidanceShown)
+    }
+
+    @Test
+    fun `round trip preserves per session baseline and commanded session identity`() {
+        val baseline =
+            baseline(MediaBaselinePlaybackState.PLAYING).copy(
+                sessions =
+                    listOf(
+                        MediaBaselineSession(
+                            "session",
+                            MediaBaselinePlaybackState.PLAYING,
+                            MediaContentFingerprint(mediaId = "old", activeQueueItemId = 1, title = "Old", durationMillis = 120_000),
+                        ),
+                    ),
+            )
+        val operation =
+            MediaOperation(
+                "media_session",
+                MediaOperationType.MEDIA_SESSION,
+                true,
+                MediaOperationStatus.AWAITING_OUTCOME,
+                effectApplied = true,
+                executionCount = 1,
+                commandedSessionId = "session",
+            )
+        val restored =
+            roundTrip(
+                checkpoint(
+                    baseline = baseline,
+                    state = MediaExecutionState.AWAIT_OUTCOME,
+                    operationId = operation.id,
+                    plan = MediaExecutionPlan(listOf(operation)),
+                ),
+            )
+
+        assertEquals(baseline.sessions, restored?.baseline?.sessions)
+        assertEquals(
+            "session",
+            restored
+                ?.plan
+                ?.operations
+                ?.single()
+                ?.commandedSessionId,
+        )
+    }
+
+    @Test
+    fun `older checkpoint without session baseline fields remains decodable`() {
+        val encoded = JSONObject(MediaExecutionCheckpointCodec.encode(checkpoint(baseline = baseline(MediaBaselinePlaybackState.PLAYING))))
+        encoded.getJSONObject("baseline").remove("sessions")
+        encoded.getJSONArray("plan").let { operations ->
+            repeat(operations.length()) { operations.getJSONObject(it).remove("commandedSessionId") }
+        }
+
+        val restored = MediaExecutionCheckpointCodec.decode(encoded.toString())
+
+        assertEquals(listOf("session"), restored?.baseline?.sessions?.map { it.sessionId })
+        assertEquals(
+            null,
+            restored
+                ?.plan
+                ?.operations
+                ?.singleOrNull()
+                ?.commandedSessionId,
+        )
     }
 
     @Test

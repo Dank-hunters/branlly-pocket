@@ -86,10 +86,14 @@ class PlayMediaCoordinator(
                     observer.awaitOutcome((session.globalDeadlineMillis - nowMillis()).coerceAtLeast(1))
                 }
             try {
+                session
+                    .currentOperation()
+                    ?.takeIf { it.status in setOf(MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME) }
+                    ?.let { observer.onOperationDispatched(it.commandedSessionId) }
                 outcome.getCompletedOrNull()?.let { return@coroutineScope finish(session, it) }
                 when (session.state()) {
                     MediaExecutionState.AWAIT_USER_LAUNCH -> {
-                        return@coroutineScope resumeUserLaunch(session, action, context, outcome)
+                        return@coroutineScope resumeUserLaunch(session, action, context, outcome, observer)
                     }
 
                     MediaExecutionState.AWAIT_MANUAL_PLAY -> {
@@ -101,7 +105,7 @@ class PlayMediaCoordinator(
                         Unit
                     }
                 }
-                executePlan(session, action, context, outcome)
+                executePlan(session, action, context, outcome, observer)
             } finally {
                 outcome.cancel()
                 observer.close()
@@ -114,6 +118,7 @@ class PlayMediaCoordinator(
         action: ShortcutAction.PlayMedia,
         context: ActionExecutionContext,
         outcome: kotlinx.coroutines.Deferred<MediaObservedOutcome>,
+        observer: MediaOutcomeObserver,
     ): ActionResult {
         while (nowMillis() < session.globalDeadlineMillis) {
             outcome.getCompletedOrNull()?.let { return finish(session, it) }
@@ -139,7 +144,7 @@ class PlayMediaCoordinator(
                 "PLAY_MEDIA_OPERATION_STARTED",
                 mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id, "operationType" to operation.type.name),
             )
-            val attempted = attempt(operation, action, context)
+            val attempted = attempt(session, operation, action, context, observer)
             context.logger.log(
                 "PLAY_MEDIA_OPERATION_RESULT",
                 mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id, "result" to attempted::class.simpleName),
@@ -184,6 +189,7 @@ class PlayMediaCoordinator(
         action: ShortcutAction.PlayMedia,
         context: ActionExecutionContext,
         outcome: kotlinx.coroutines.Deferred<MediaObservedOutcome>,
+        observer: MediaOutcomeObserver,
     ): ActionResult {
         outcome.getCompletedOrNull()?.let { return finish(session, it) }
         if (!context.userInitiated || !session.consumeContinuation()) {
@@ -192,7 +198,7 @@ class PlayMediaCoordinator(
         val operation =
             session.currentOperation()
                 ?: return finish(session, MediaExecutionResult.Failed("L’opération média à reprendre est absente."))
-        return when (val attempted = attempt(operation, action, context)) {
+        return when (val attempted = attempt(session, operation, action, context, observer)) {
             is Attempt.UserLaunchRequired -> {
                 finish(
                     session,
@@ -206,7 +212,7 @@ class PlayMediaCoordinator(
 
             Attempt.Opened -> {
                 session.finishOperation(operation.id, MediaOperationStatus.AWAITING_OUTCOME)
-                executePlan(session, action, context, outcome)
+                executePlan(session, action, context, outcome, observer)
             }
         }
     }
@@ -234,19 +240,32 @@ class PlayMediaCoordinator(
         )
 
     private suspend fun attempt(
+        session: MediaExecutionSession,
         operation: MediaOperation,
         action: ShortcutAction.PlayMedia,
         context: ActionExecutionContext,
+        observer: MediaOutcomeObserver,
     ): Attempt =
         when (operation.type) {
             MediaOperationType.DIRECT_URI -> {
-                launch(adapter.buildDirectContentIntent(action.request()), action.targetAppLabel, context)
+                observer.capturePreDispatchState()
+                launch(adapter.buildDirectContentIntent(action.request()), action.targetAppLabel, context).also {
+                    if (it is Attempt.Opened) observer.onOperationDispatched(null)
+                }
             }
 
             MediaOperationType.MEDIA_SESSION -> {
-                when (commands.request(action)) {
-                    is MediaSessionCommandResult.Sent -> Attempt.Opened
-                    is MediaSessionCommandResult.NotSupported, is MediaSessionCommandResult.Failed -> Attempt.Failed
+                observer.capturePreDispatchState()
+                when (val command = commands.request(action)) {
+                    is MediaSessionCommandResult.Sent -> {
+                        session.recordCommandedSession(operation.id, command.sessionId)
+                        observer.onOperationDispatched(command.sessionId)
+                        Attempt.Opened
+                    }
+
+                    is MediaSessionCommandResult.NotSupported, is MediaSessionCommandResult.Failed -> {
+                        Attempt.Failed
+                    }
                 }
             }
 
@@ -255,7 +274,10 @@ class PlayMediaCoordinator(
                     "PLAY_MEDIA_PROVIDER_SEARCH_FALLBACK",
                     mapOf("nodeId" to context.nodeId.value, "targetPackage" to action.targetPackage),
                 )
-                launch(adapter.buildSearchIntent(action.request()), action.targetAppLabel, context)
+                observer.capturePreDispatchState()
+                launch(adapter.buildSearchIntent(action.request()), action.targetAppLabel, context).also {
+                    if (it is Attempt.Opened) observer.onOperationDispatched(null)
+                }
             }
 
             MediaOperationType.MANUAL_ASSISTANCE -> {
@@ -278,6 +300,7 @@ class PlayMediaCoordinator(
                     "nodeId" to context.nodeId.value,
                     "sessionId" to outcome.sessionId,
                     "contentConfirmed" to outcome.contentConfirmed,
+                    "proof" to outcome.proof,
                 ),
             )
         }

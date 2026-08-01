@@ -96,6 +96,7 @@ class PlayMediaCoordinatorResumeTest {
 
             assertEquals(ActionResult.Completed, result)
             assertEquals(1, fixture.commandCalls)
+            assertEquals(listOf("commanded"), fixture.dispatchedSessionIds)
             assertEquals(0, fixture.launchCalls)
         }
 
@@ -193,7 +194,8 @@ class PlayMediaCoordinatorResumeTest {
         var guidanceShows = 0
         var completeOnCommand = false
         var completeOnLaunch = false
-        var commandResult: MediaSessionCommandResult = MediaSessionCommandResult.Sent("playFromSearch")
+        var commandResult: MediaSessionCommandResult = MediaSessionCommandResult.Sent("playFromSearch", "commanded")
+        val dispatchedSessionIds = mutableListOf<String?>()
 
         fun coordinator() =
             PlayMediaCoordinator(
@@ -235,6 +237,10 @@ class PlayMediaCoordinatorResumeTest {
                         override val baseline = restored ?: this@Fixture.baseline
 
                         override suspend fun awaitOutcome(timeoutMillis: Long) = outcome.await()
+
+                        override fun onOperationDispatched(commandedSessionId: String?) {
+                            dispatchedSessionIds += commandedSessionId
+                        }
 
                         override fun close() {
                             closeCalls++

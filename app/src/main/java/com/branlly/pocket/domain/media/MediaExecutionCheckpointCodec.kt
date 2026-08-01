@@ -56,7 +56,26 @@ object MediaExecutionCheckpointCodec {
                         "position",
                         checkpoint.baseline.positionMillis,
                     ).put("capturedAt", checkpoint.baseline.capturedAtMillis)
-                    .put("metadata", checkpoint.baseline.metadataState.name),
+                    .put("metadata", checkpoint.baseline.metadataState.name)
+                    .put(
+                        "sessions",
+                        JSONArray().apply {
+                            checkpoint.baseline.sessions.forEach { session ->
+                                put(
+                                    JSONObject()
+                                        .put("id", session.sessionId)
+                                        .put("state", session.playbackState.name)
+                                        .put("mediaId", session.content.mediaId)
+                                        .put("queueItemId", session.content.activeQueueItemId)
+                                        .put("title", session.content.title)
+                                        .put("artist", session.content.artist)
+                                        .put("album", session.content.album)
+                                        .put("duration", session.content.durationMillis)
+                                        .put("uri", session.content.mediaUri),
+                                )
+                            }
+                        },
+                    ),
             ).put(
                 "plan",
                 JSONArray().apply {
@@ -73,7 +92,8 @@ object MediaExecutionCheckpointCodec {
                                 .put("status", operation.status.name)
                                 .put("effectApplied", operation.effectApplied)
                                 .put("executionCount", operation.executionCount)
-                                .put("reason", operation.reason),
+                                .put("reason", operation.reason)
+                                .put("commandedSessionId", operation.commandedSessionId),
                         )
                     }
                 },
@@ -124,6 +144,7 @@ object MediaExecutionCheckpointCodec {
                                 effectApplied = item.optBoolean("effectApplied", false),
                                 executionCount = item.optInt("executionCount", 0),
                                 reason = optionalString(item, "reason"),
+                                commandedSessionId = optionalString(item, "commandedSessionId"),
                             ),
                         )
                     }
@@ -139,26 +160,71 @@ object MediaExecutionCheckpointCodec {
             val automaticDeadline = value.getLong("automaticDeadlineMillis")
             val globalDeadline = value.getLong("globalDeadlineMillis")
             if (globalDeadline < startedAt || automaticDeadline > globalDeadline) return null
-            val baseline =
+            val hasSessionEntries = value.optJSONObject("baseline")?.has("sessions") == true
+            val decodedBaseline =
                 value.optJSONObject("baseline")?.let { baseline ->
+                    val sessions =
+                        buildList {
+                            val array = baseline.optJSONArray("sessions") ?: return@buildList
+                            repeat(array.length()) { index ->
+                                val item = array.getJSONObject(index)
+                                add(
+                                    MediaBaselineSession(
+                                        sessionId = item.getString("id").takeIf(String::isNotBlank) ?: error("Blank session ID"),
+                                        playbackState = MediaBaselinePlaybackState.valueOf(item.getString("state")),
+                                        content =
+                                            MediaContentFingerprint(
+                                                mediaId = optionalString(item, "mediaId"),
+                                                activeQueueItemId =
+                                                    if (item.has("queueItemId") &&
+                                                        !item.isNull("queueItemId")
+                                                    ) {
+                                                        item.getLong("queueItemId")
+                                                    } else {
+                                                        null
+                                                    },
+                                                title = optionalString(item, "title"),
+                                                artist = optionalString(item, "artist"),
+                                                album = optionalString(item, "album"),
+                                                durationMillis =
+                                                    if (item.has("duration") &&
+                                                        !item.isNull("duration")
+                                                    ) {
+                                                        item.getLong("duration")
+                                                    } else {
+                                                        null
+                                                    },
+                                                mediaUri = optionalString(item, "uri"),
+                                            ),
+                                    ),
+                                )
+                            }
+                        }
                     MediaSessionBaseline(
-                        strings(
-                            "baselinePlaying",
-                        ),
-                        strings("baselineKnown"),
-                        baseline.getBoolean("present"),
-                        optionalString(baseline, "package"),
-                        MediaBaselinePlaybackState.valueOf(baseline.getString("state")),
-                        optionalString(baseline, "title"),
-                        optionalString(baseline, "artist"),
-                        optionalString(baseline, "album"),
-                        optionalString(baseline, "uri"),
-                        optionalString(baseline, "sessionId"),
-                        if (baseline.has("position") && !baseline.isNull("position")) baseline.getLong("position") else null,
-                        baseline.getLong("capturedAt"),
-                        MediaBaselineMetadataState.valueOf(baseline.getString("metadata")),
+                        playingSessionIds = strings("baselinePlaying"),
+                        knownSessionIds = strings("baselineKnown"),
+                        sessionPresent = baseline.getBoolean("present"),
+                        packageName = optionalString(baseline, "package"),
+                        playbackState = MediaBaselinePlaybackState.valueOf(baseline.getString("state")),
+                        title = optionalString(baseline, "title"),
+                        artist = optionalString(baseline, "artist"),
+                        album = optionalString(baseline, "album"),
+                        mediaUri = optionalString(baseline, "uri"),
+                        sessionId = optionalString(baseline, "sessionId"),
+                        positionMillis =
+                            if (baseline.has("position") &&
+                                !baseline.isNull("position")
+                            ) {
+                                baseline.getLong("position")
+                            } else {
+                                null
+                            },
+                        capturedAtMillis = baseline.getLong("capturedAt"),
+                        metadataState = MediaBaselineMetadataState.valueOf(baseline.getString("metadata")),
+                        sessions = sessions,
                     )
                 } ?: MediaSessionBaseline(strings("baselinePlaying"), strings("baselineKnown"))
+            val baseline = decodedBaseline.withLegacySessionEntries(hasSessionEntries)
             if (baseline.capturedAtMillis < 0 || baseline.positionMillis?.let { it < 0 } == true ||
                 (baseline.sessionPresent && baseline.packageName.isNullOrBlank()) ||
                 (
@@ -229,6 +295,35 @@ object MediaExecutionCheckpointCodec {
                 plan = MediaExecutionPlan(operations),
             )
         }.getOrNull()
+
+    private fun MediaSessionBaseline.withLegacySessionEntries(hasSessionEntries: Boolean): MediaSessionBaseline {
+        if (hasSessionEntries || sessions.isNotEmpty() || knownSessionIds.isEmpty()) return this
+        return copy(
+            sessions =
+                knownSessionIds.map { id ->
+                    MediaBaselineSession(
+                        sessionId = id,
+                        playbackState =
+                            when {
+                                id == sessionId -> playbackState
+                                id in playingSessionIds -> MediaBaselinePlaybackState.PLAYING
+                                else -> MediaBaselinePlaybackState.UNKNOWN
+                            },
+                        content =
+                            if (id == sessionId) {
+                                MediaContentFingerprint(
+                                    title = title,
+                                    artist = artist,
+                                    album = album,
+                                    mediaUri = mediaUri,
+                                )
+                            } else {
+                                MediaContentFingerprint()
+                            },
+                    )
+                },
+        )
+    }
 
     private val ACTIVE_OPERATION_STATUSES =
         setOf(

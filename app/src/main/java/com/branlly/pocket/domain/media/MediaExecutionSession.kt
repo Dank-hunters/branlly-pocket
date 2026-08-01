@@ -42,6 +42,42 @@ enum class MediaBaselinePlaybackState { NONE, STOPPED, PAUSED, PLAYING, UNKNOWN 
 
 enum class MediaBaselineMetadataState { ABSENT, PARTIAL, COMPLETE }
 
+data class MediaContentFingerprint(
+    val mediaId: String? = null,
+    val activeQueueItemId: Long? = null,
+    val title: String? = null,
+    val artist: String? = null,
+    val album: String? = null,
+    val durationMillis: Long? = null,
+    val mediaUri: String? = null,
+) {
+    fun isComparable(): Boolean =
+        !mediaId.isNullOrBlank() || activeQueueItemId != null ||
+            listOf(title, artist, album, durationMillis?.toString(), mediaUri).any { !it.isNullOrBlank() }
+
+    fun differsFrom(previous: MediaContentFingerprint): Boolean {
+        fun changed(
+            current: String?,
+            baseline: String?,
+        ): Boolean = !current.isNullOrBlank() && !baseline.isNullOrBlank() && current != baseline
+        val technicalChanged =
+            (!mediaId.isNullOrBlank() && !previous.mediaId.isNullOrBlank() && mediaId != previous.mediaId) ||
+                (activeQueueItemId != null && previous.activeQueueItemId != null && activeQueueItemId != previous.activeQueueItemId)
+        return technicalChanged ||
+            changed(title, previous.title) ||
+            changed(artist, previous.artist) ||
+            changed(album, previous.album) ||
+            changed(mediaUri, previous.mediaUri) ||
+            (durationMillis != null && previous.durationMillis != null && durationMillis != previous.durationMillis)
+    }
+}
+
+data class MediaBaselineSession(
+    val sessionId: String,
+    val playbackState: MediaBaselinePlaybackState,
+    val content: MediaContentFingerprint = MediaContentFingerprint(),
+)
+
 data class MediaSessionBaseline(
     val playingSessionIds: Set<String>,
     val knownSessionIds: Set<String>,
@@ -56,7 +92,48 @@ data class MediaSessionBaseline(
     val positionMillis: Long? = null,
     val capturedAtMillis: Long = 0,
     val metadataState: MediaBaselineMetadataState = MediaBaselineMetadataState.ABSENT,
+    val sessions: List<MediaBaselineSession> = emptyList(),
 )
+
+data class MediaObservedSession(
+    val sessionId: String,
+    val packageName: String,
+    val playbackState: MediaBaselinePlaybackState,
+    val content: MediaContentFingerprint = MediaContentFingerprint(),
+)
+
+/** Pure confirmation policy shared by Android callbacks and unit tests. */
+fun MediaSessionBaseline.confirmDirectPlayback(
+    observed: MediaObservedSession,
+    targetPackage: String,
+    commandedSessionId: String?,
+    commandDispatched: Boolean,
+    commandedSessionStillPresent: Boolean,
+): String? {
+    if (!commandDispatched || observed.packageName != targetPackage ||
+        observed.playbackState != MediaBaselinePlaybackState.PLAYING
+    ) {
+        return null
+    }
+    val previous = sessions.firstOrNull { it.sessionId == observed.sessionId }
+    if (commandedSessionId == null) {
+        return when {
+            previous == null -> "new_session_playing"
+            previous.playbackState != MediaBaselinePlaybackState.PLAYING -> "existing_session_started"
+            observed.content.differsFrom(previous.content) -> "content_changed"
+            else -> null
+        }
+    }
+    if (observed.sessionId == commandedSessionId) {
+        return when {
+            previous == null -> "commanded_session_new"
+            previous.playbackState != MediaBaselinePlaybackState.PLAYING -> "commanded_session_started"
+            observed.content.differsFrom(previous.content) -> "commanded_session_content_changed"
+            else -> null
+        }
+    }
+    return if (!commandedSessionStillPresent && previous == null) "replacement_session_playing" else null
+}
 
 data class MediaOperation(
     val id: String,
@@ -67,6 +144,7 @@ data class MediaOperation(
     val effectApplied: Boolean = false,
     val executionCount: Int = 0,
     val reason: String? = null,
+    val commandedSessionId: String? = null,
 )
 
 data class MediaExecutionPlan(
@@ -220,6 +298,21 @@ class MediaExecutionSession(
                         } else {
                             it
                         }
+                    },
+            )
+        }
+
+    fun recordCommandedSession(
+        operationId: String,
+        sessionId: String?,
+    ): Boolean =
+        update { current ->
+            if (current.terminal != null) return@update null
+            current.copy(
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == operationId && it.status in ACTIVE_OPERATION_STATUSES) it.copy(commandedSessionId = sessionId) else it
                     },
             )
         }
