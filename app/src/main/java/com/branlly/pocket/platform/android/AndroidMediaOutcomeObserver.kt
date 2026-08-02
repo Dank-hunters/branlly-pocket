@@ -18,6 +18,7 @@ import com.branlly.pocket.domain.media.MediaObservedOutcome
 import com.branlly.pocket.domain.media.MediaObservedSession
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.media.MediaSessionBaseline
+import com.branlly.pocket.domain.media.ObservableMediaController
 import com.branlly.pocket.domain.media.confirmDirectPlayback
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
@@ -42,7 +43,11 @@ class AndroidMediaOutcomeObserver(
 
     @Volatile private var commandedSessionId: String? = null
 
+    @Volatile private var commandedController: ObservableMediaController? = null
+
     @Volatile private var inspectSessions: (() -> Unit)? = null
+
+    @Volatile private var attachCommandedController: (() -> Unit)? = null
 
     @Volatile private var preDispatchSessions: List<MediaBaselineSession>? = null
 
@@ -54,6 +59,7 @@ class AndroidMediaOutcomeObserver(
     override fun capturePreDispatchState() {
         operationDispatched = false
         commandedSessionId = null
+        commandedController = null
         val captured =
             runCatching {
                 manager
@@ -70,12 +76,19 @@ class AndroidMediaOutcomeObserver(
         }
     }
 
-    override fun onOperationDispatched(commandedSessionId: String?) {
+    override fun onOperationDispatched(
+        commandedSessionId: String?,
+        commandedController: ObservableMediaController?,
+    ) {
         this.commandedSessionId = commandedSessionId
+        this.commandedController = commandedController
         operationDispatched = true
         synchronized(unconfirmedSessions) { unconfirmedSessions.clear() }
         Log.i(TAG, "Operation dispatched session=${commandedSessionId ?: "unscoped"}")
-        handler.post { inspectSessions?.invoke() }
+        handler.post {
+            attachCommandedController?.invoke()
+            inspectSessions?.invoke()
+        }
     }
 
     override suspend fun awaitOutcome(timeoutMillis: Long): MediaObservedOutcome {
@@ -91,6 +104,7 @@ class AndroidMediaOutcomeObserver(
         return withTimeoutOrNull(timeoutMillis) {
             suspendCancellableCoroutine { continuation ->
                 val callbacks = ConcurrentHashMap<MediaController, MediaController.Callback>()
+                var commandedSubscription: AutoCloseable? = null
                 lateinit var sessionsListener: MediaSessionManager.OnActiveSessionsChangedListener
                 val finished = AtomicBoolean(false)
 
@@ -98,9 +112,12 @@ class AndroidMediaOutcomeObserver(
                     if (!finished.compareAndSet(false, true)) return
                     callbacks.forEach { (controller, callback) -> runCatching { controller.unregisterCallback(callback) } }
                     callbacks.clear()
+                    runCatching { commandedSubscription?.close() }
+                    commandedSubscription = null
                     runCatching { manager.removeOnActiveSessionsChangedListener(sessionsListener) }
                     cleanup = null
                     inspectSessions = null
+                    attachCommandedController = null
                 }
 
                 fun complete(outcome: MediaObservedOutcome) {
@@ -110,17 +127,10 @@ class AndroidMediaOutcomeObserver(
                 }
 
                 fun observed(
-                    controller: MediaController,
+                    snapshot: MediaObservedSession,
                     currentSessionIds: Set<String>,
                 ): MediaObservedOutcome.PlaybackStarted? {
-                    val id = controller.sessionToken.hashCode().toString()
-                    val snapshot =
-                        MediaObservedSession(
-                            sessionId = id,
-                            packageName = controller.packageName,
-                            playbackState = controller.playbackState.toBaselineState(),
-                            content = controller.contentFingerprint(),
-                        )
+                    val id = snapshot.sessionId
                     if (preDispatchCaptureFailed) return null
                     val proof =
                         baseline.copy(sessions = preDispatchSessions ?: baseline.sessions).confirmDirectPlayback(
@@ -151,7 +161,21 @@ class AndroidMediaOutcomeObserver(
                     if (finished.get()) return
                     val targets = sessions.filter { it.packageName == targetPackage }
                     val currentSessionIds = targets.mapTo(linkedSetOf()) { it.sessionToken.hashCode().toString() }
-                    targets
+                    val snapshots =
+                        targets
+                            .map {
+                                MediaObservedSession(
+                                    sessionId = it.sessionToken.hashCode().toString(),
+                                    packageName = it.packageName,
+                                    playbackState = it.playbackState.toBaselineState(),
+                                    content = it.contentFingerprint(),
+                                )
+                            }.toMutableList()
+                    commandedController?.snapshot()?.takeIf { it.packageName == targetPackage }?.let { snapshot ->
+                        currentSessionIds += snapshot.sessionId
+                        if (snapshots.none { it.sessionId == snapshot.sessionId }) snapshots += snapshot
+                    }
+                    snapshots
                         .firstNotNullOfOrNull { observed(it, currentSessionIds) }
                         ?.let(::complete)
                         ?.also { return }
@@ -195,6 +219,16 @@ class AndroidMediaOutcomeObserver(
                     runCatching { manager.getActiveSessions(component) }
                         .onSuccess(::observe)
                         .onFailure { complete(MediaObservedOutcome.Unavailable(it.message ?: "Session média indisponible.")) }
+                }
+                attachCommandedController = attachment@{
+                    if (commandedSubscription != null) return@attachment
+                    val controller = commandedController ?: return@attachment
+                    commandedSubscription =
+                        runCatching {
+                            controller.subscribe { handler.post { inspectSessions?.invoke() } }
+                        }.onFailure {
+                            Log.w(TAG, "Commanded controller callback unavailable", it)
+                        }.getOrNull()
                 }
                 cleanup = ::dispose
                 continuation.invokeOnCancellation { dispose() }

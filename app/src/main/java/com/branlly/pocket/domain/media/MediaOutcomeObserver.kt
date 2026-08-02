@@ -10,9 +10,26 @@ interface MediaOutcomeObserver : AutoCloseable {
     fun capturePreDispatchState() = Unit
 
     /** Records an operation actually dispatched; null means no session-specific correlation is available. */
-    fun onOperationDispatched(commandedSessionId: String?) = Unit
+    fun onOperationDispatched(
+        commandedSessionId: String?,
+        commandedController: ObservableMediaController? = null,
+    ) = Unit
 
     override fun close()
+}
+
+/**
+ * Android-free handle for the exact controller selected by a media command.
+ * It remains valid for the lifetime of one observation only and must not be persisted.
+ */
+interface ObservableMediaController {
+    val sessionId: String
+    val packageName: String
+
+    fun snapshot(): MediaObservedSession?
+
+    /** Registers a change listener and returns an idempotent subscription cleanup. */
+    fun subscribe(listener: () -> Unit): AutoCloseable
 }
 
 sealed interface MediaObservedOutcome {

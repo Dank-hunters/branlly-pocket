@@ -368,7 +368,10 @@ class PlayMediaCoordinatorResumeTest {
 
                         override suspend fun awaitOutcome(timeoutMillis: Long) = outcome.await()
 
-                        override fun onOperationDispatched(commandedSessionId: String?) {
+                        override fun onOperationDispatched(
+                            commandedSessionId: String?,
+                            commandedController: com.branlly.pocket.domain.media.ObservableMediaController?,
+                        ) {
                             dispatchedSessionIds += commandedSessionId
                         }
 

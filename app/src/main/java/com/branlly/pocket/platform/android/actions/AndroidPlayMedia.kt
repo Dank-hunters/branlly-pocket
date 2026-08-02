@@ -12,7 +12,11 @@ import android.os.Bundle
 import android.util.Log
 import androidx.core.app.NotificationManagerCompat
 import com.branlly.pocket.domain.execution.ActionExecutionContext
+import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
 import com.branlly.pocket.domain.media.MediaCapabilitySnapshot
+import com.branlly.pocket.domain.media.MediaContentFingerprint
+import com.branlly.pocket.domain.media.MediaObservedSession
+import com.branlly.pocket.domain.media.ObservableMediaController
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.workflow.CapabilityResolver
 import com.branlly.pocket.platform.android.BranllyMediaListener
@@ -83,6 +87,7 @@ sealed interface MediaSessionCommandResult {
     data class Sent(
         val command: String,
         val sessionId: String? = null,
+        val observableController: ObservableMediaController? = null,
     ) : MediaSessionCommandResult
 
     data class NotSupported(
@@ -267,7 +272,12 @@ class AndroidMediaSessionCommandGateway(
         return runCatching {
             val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, transport)
             Log.i(TAG, "$sent envoyé package=${action.targetPackage}")
-            MediaSessionCommandResult.Sent(sent, controllers[selection.index].sessionToken.hashCode().toString())
+            val controller = controllers[selection.index]
+            MediaSessionCommandResult.Sent(
+                sent,
+                controller.sessionToken.hashCode().toString(),
+                AndroidObservableMediaController(controller),
+            )
         }.getOrElse {
             Log.w(TAG, "Commande MediaSession refusée", it)
             MediaSessionCommandResult.Failed(it.message ?: "Commande MediaSession refusée.", DirectMediaFailureReason.COMMAND_EXCEPTION)
@@ -276,6 +286,58 @@ class AndroidMediaSessionCommandGateway(
 
     private companion object {
         const val TAG = "BranllyPlayMedia"
+    }
+}
+
+private class AndroidObservableMediaController(
+    private val controller: MediaController,
+) : ObservableMediaController {
+    override val sessionId: String = controller.sessionToken.hashCode().toString()
+    override val packageName: String = controller.packageName
+
+    override fun snapshot(): MediaObservedSession? =
+        runCatching {
+            val metadata = controller.metadata
+            MediaObservedSession(
+                sessionId = sessionId,
+                packageName = packageName,
+                playbackState =
+                    when (controller.playbackState?.state) {
+                        PlaybackState.STATE_PLAYING -> MediaBaselinePlaybackState.PLAYING
+                        PlaybackState.STATE_PAUSED -> MediaBaselinePlaybackState.PAUSED
+                        PlaybackState.STATE_STOPPED -> MediaBaselinePlaybackState.STOPPED
+                        null -> MediaBaselinePlaybackState.NONE
+                        else -> MediaBaselinePlaybackState.UNKNOWN
+                    },
+                content =
+                    MediaContentFingerprint(
+                        mediaId = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_MEDIA_ID),
+                        activeQueueItemId = controller.playbackState?.activeQueueItemId?.takeIf { it >= 0L },
+                        title = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_TITLE),
+                        artist = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_ARTIST),
+                        album = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_ALBUM),
+                        durationMillis = metadata?.getLong(android.media.MediaMetadata.METADATA_KEY_DURATION)?.takeIf { it > 0L },
+                        mediaUri = metadata?.getString(android.media.MediaMetadata.METADATA_KEY_MEDIA_URI),
+                    ),
+            )
+        }.getOrNull()
+
+    override fun subscribe(listener: () -> Unit): AutoCloseable {
+        val callback =
+            object : MediaController.Callback() {
+                override fun onPlaybackStateChanged(state: PlaybackState?) = listener()
+
+                override fun onMetadataChanged(metadata: android.media.MediaMetadata?) = listener()
+
+                override fun onSessionDestroyed() = listener()
+            }
+        controller.registerCallback(callback)
+        val closed =
+            java.util.concurrent.atomic
+                .AtomicBoolean(false)
+        return AutoCloseable {
+            if (closed.compareAndSet(false, true)) runCatching { controller.unregisterCallback(callback) }
+        }
     }
 }
 

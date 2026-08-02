@@ -477,7 +477,7 @@ class PlayMediaCoordinator(
                             mapOf("nodeId" to context.nodeId.value, "sessionId" to command.sessionId),
                         )
                         session.recordCommandedSession(operation.id, command.sessionId)
-                        observer.onOperationDispatched(command.sessionId)
+                        observer.onOperationDispatched(command.sessionId, command.observableController)
                         Attempt.Opened
                     }
 
