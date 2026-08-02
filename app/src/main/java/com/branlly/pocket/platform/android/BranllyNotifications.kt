@@ -16,6 +16,7 @@ object BranllyNotifications {
     const val CONTINUATION_CHANNEL: String = "external_action_continuations"
     const val EXECUTION_CHANNEL: String = "routine_execution"
     const val MANUAL_MEDIA_CHANNEL: String = "manual_media_playback"
+    const val MEDIA_EXECUTION_RESULTS_CHANNEL: String = "media_execution_results"
     const val SUGGESTION_CHANNEL: String = "context_suggestions"
 
     fun builder(
@@ -37,6 +38,11 @@ object BranllyNotifications {
     fun ensureManualMediaChannel(context: Context): String {
         createChannel(context, MANUAL_MEDIA_CHANNEL, "Lecture manuelle", NotificationManager.IMPORTANCE_HIGH)
         return MANUAL_MEDIA_CHANNEL
+    }
+
+    fun ensureMediaExecutionResultsChannel(context: Context): String {
+        createChannel(context, MEDIA_EXECUTION_RESULTS_CHANNEL, "Résultats de lecture multimédia", NotificationManager.IMPORTANCE_DEFAULT)
+        return MEDIA_EXECUTION_RESULTS_CHANNEL
     }
 
     fun ensureSuggestionChannel(context: Context): String {

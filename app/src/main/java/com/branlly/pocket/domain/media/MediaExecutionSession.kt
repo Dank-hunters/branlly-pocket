@@ -165,6 +165,7 @@ data class MediaExecutionCheckpoint(
     val continuationConsumed: Boolean,
     val continuationKey: String? = null,
     val manualGuidanceShown: Boolean,
+    val directFailureNoticeShown: Boolean = false,
     val baseline: MediaSessionBaseline,
     val plan: MediaExecutionPlan,
 )
@@ -213,6 +214,7 @@ class MediaExecutionSession(
     initialContinuationConsumed: Boolean = false,
     initialContinuationKey: String? = null,
     initialManualGuidanceShown: Boolean = false,
+    initialDirectFailureNoticeShown: Boolean = false,
     val automaticDeadlineMillis: Long,
     val globalDeadlineMillis: Long,
     val startedAtMillis: Long = System.currentTimeMillis(),
@@ -225,6 +227,7 @@ class MediaExecutionSession(
         val continuationConsumed: Boolean,
         val continuationKey: String?,
         val manualGuidanceShown: Boolean,
+        val directFailureNoticeShown: Boolean,
         val terminal: MediaExecutionResult? = null,
     )
 
@@ -238,6 +241,7 @@ class MediaExecutionSession(
                 initialContinuationConsumed,
                 initialContinuationKey,
                 initialManualGuidanceShown,
+                initialDirectFailureNoticeShown,
             ),
         )
 
@@ -346,6 +350,15 @@ class MediaExecutionSession(
             }
         }
 
+    fun markDirectFailureNoticeShown(): Boolean =
+        update { current ->
+            if (current.terminal != null || current.directFailureNoticeShown) {
+                null
+            } else {
+                current.copy(version = current.version + 1, directFailureNoticeShown = true)
+            }
+        }
+
     fun consumeContinuation(): Boolean =
         update { current ->
             if (current.terminal != null || current.state != MediaExecutionState.AWAIT_USER_LAUNCH ||
@@ -373,6 +386,7 @@ class MediaExecutionSession(
             continuationConsumed = current.continuationConsumed,
             continuationKey = current.continuationKey,
             manualGuidanceShown = current.manualGuidanceShown,
+            directFailureNoticeShown = current.directFailureNoticeShown,
             baseline = baseline,
             plan = MediaExecutionPlan(current.operations),
         )
@@ -428,6 +442,7 @@ class MediaExecutionSession(
                 initialContinuationConsumed = checkpoint.continuationConsumed,
                 initialContinuationKey = checkpoint.continuationKey,
                 initialManualGuidanceShown = checkpoint.manualGuidanceShown,
+                initialDirectFailureNoticeShown = checkpoint.directFailureNoticeShown,
                 automaticDeadlineMillis = checkpoint.automaticDeadlineMillis,
                 globalDeadlineMillis = checkpoint.globalDeadlineMillis,
                 startedAtMillis = checkpoint.startedAtMillis,

@@ -1,5 +1,18 @@
 # Journal des modifications
 
+## 0.15.11
+
+### Corrections
+
+- PLAY_MEDIA affiche désormais la cause compréhensible et un code stable lorsqu’une commande directe échoue.
+- En mode Automatique, l’information précède l’ouverture du lecteur ; en mode Arrière-plan uniquement, elle confirme que le lecteur reste fermé.
+- Les notifications de résultat restent temporaires en mode Automatique et dismissibles en mode Arrière-plan uniquement.
+
+### Validation
+
+- Des tests automatisés couvrent les raisons, le fallback, l’absence d’ouverture et l’idempotence de checkpoint.
+- Cette version n’a pas été validée physiquement sur téléphone avant le test utilisateur.
+
 ## 0.15.10
 
 ### Nouveautés

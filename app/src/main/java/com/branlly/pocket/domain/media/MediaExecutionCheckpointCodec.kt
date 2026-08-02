@@ -23,6 +23,7 @@ object MediaExecutionCheckpointCodec {
             .put("continuationConsumed", checkpoint.continuationConsumed)
             .put("continuationKey", checkpoint.continuationKey)
             .put("manualAssistanceShown", checkpoint.manualGuidanceShown)
+            .put("directFailureNoticeShown", checkpoint.directFailureNoticeShown)
             .put("baselinePlaying", JSONArray(checkpoint.baseline.playingSessionIds))
             .put("baselineKnown", JSONArray(checkpoint.baseline.knownSessionIds))
             .put(
@@ -291,6 +292,7 @@ object MediaExecutionCheckpointCodec {
                 continuationConsumed = continuationConsumed,
                 continuationKey = continuationKey,
                 manualGuidanceShown = value.getBoolean("manualAssistanceShown"),
+                directFailureNoticeShown = value.optBoolean("directFailureNoticeShown", false),
                 baseline = baseline,
                 plan = MediaExecutionPlan(operations),
             )

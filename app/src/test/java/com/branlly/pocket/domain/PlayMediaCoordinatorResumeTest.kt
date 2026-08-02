@@ -22,6 +22,8 @@ import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutId
 import com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint
 import com.branlly.pocket.platform.android.actions.AppTarget
+import com.branlly.pocket.platform.android.actions.DirectMediaFailureNotice
+import com.branlly.pocket.platform.android.actions.DirectMediaFailureReason
 import com.branlly.pocket.platform.android.actions.ExternalActivityGateway
 import com.branlly.pocket.platform.android.actions.ManualMediaGuidance
 import com.branlly.pocket.platform.android.actions.MediaOpenRequest
@@ -36,6 +38,14 @@ import org.junit.Assert.assertEquals
 import org.junit.Test
 
 class PlayMediaCoordinatorResumeTest {
+    @Test
+    fun `direct failure reasons have user-safe messages`() {
+        DirectMediaFailureReason.entries.forEach { reason ->
+            assertEquals(false, reason.userMessage.isBlank())
+            assertEquals(false, reason.userMessage.contains("MediaSession", ignoreCase = true))
+        }
+    }
+
     @Test
     fun `playing during suspension completes without replaying pending operation`() =
         runBlocking {
@@ -99,6 +109,7 @@ class PlayMediaCoordinatorResumeTest {
             assertEquals(1, fixture.commandCalls)
             assertEquals(listOf("commanded"), fixture.dispatchedSessionIds)
             assertEquals(0, fixture.launchCalls)
+            assertEquals(0, fixture.failureNotices.size)
         }
 
     @Test
@@ -113,6 +124,37 @@ class PlayMediaCoordinatorResumeTest {
             assertEquals(ActionResult.Completed, result)
             assertEquals(1, fixture.commandCalls)
             assertEquals(1, fixture.launchCalls)
+        }
+
+    @Test
+    fun `automatic direct failure posts one notice before provider search`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.commandResult = MediaSessionCommandResult.NotSupported("Aucune session du package cible.")
+            fixture.completeOnLaunch = true
+
+            val result = fixture.coordinator().execute(action(), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(1, fixture.launchCalls)
+            assertEquals(1, fixture.failureNotices.size)
+            assertEquals(DirectMediaFailureReason.NO_TARGET_SESSION, fixture.failureNotices.single().reason)
+            assertEquals(MediaLaunchMode.AUTOMATIC, fixture.failureNotices.single().mode)
+        }
+
+    @Test
+    fun `disabled notices do not alter automatic fallback`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.noticesAvailable = false
+            fixture.commandResult = MediaSessionCommandResult.NotSupported("unsupported")
+            fixture.completeOnLaunch = true
+
+            val result = fixture.coordinator().execute(action(), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(1, fixture.launchCalls)
+            assertEquals(0, fixture.failureNotices.size)
         }
 
     @Test
@@ -137,9 +179,13 @@ class PlayMediaCoordinatorResumeTest {
 
             val result = fixture.coordinator().execute(action(MediaLaunchMode.BACKGROUND_ONLY), context())
 
-            assertEquals(ActionResult.Failed("La lecture en arrière-plan n’est pas disponible pour ce lecteur dans l’état actuel."), result)
+            assertEquals(
+                ActionResult.Failed("Aucune session multimédia compatible n’a été trouvée. Le lecteur n’a pas été ouvert."),
+                result,
+            )
             assertEquals(1, fixture.commandCalls)
             assertEquals(0, fixture.launchCalls)
+            assertEquals(listOf(DirectMediaFailureReason.NO_TARGET_SESSION), fixture.failureNotices.map { it.reason })
         }
 
     @Test
@@ -165,9 +211,13 @@ class PlayMediaCoordinatorResumeTest {
 
             val result = fixture.coordinator().execute(action(MediaLaunchMode.BACKGROUND_ONLY), context(), workflow(applied))
 
-            assertEquals(ActionResult.Failed("La lecture en arrière-plan n’est pas disponible pour ce lecteur dans l’état actuel."), result)
+            assertEquals(
+                ActionResult.Failed("La lecture n’a pas été confirmée dans le délai prévu. Le lecteur n’a pas été ouvert."),
+                result,
+            )
             assertEquals(0, fixture.commandCalls)
             assertEquals(0, fixture.launchCalls)
+            assertEquals(listOf(DirectMediaFailureReason.PLAYBACK_NOT_CONFIRMED), fixture.failureNotices.map { it.reason })
         }
 
     @Test
@@ -274,6 +324,8 @@ class PlayMediaCoordinatorResumeTest {
         var commandResult: MediaSessionCommandResult = MediaSessionCommandResult.Sent("playFromSearch", "commanded")
         var directUriIntent: Intent? = null
         val dispatchedSessionIds = mutableListOf<String?>()
+        val failureNotices = mutableListOf<DirectMediaFailureNotice>()
+        var noticesAvailable = true
 
         fun coordinator() =
             PlayMediaCoordinator(
@@ -332,6 +384,15 @@ class PlayMediaCoordinatorResumeTest {
                             executionContext: ActionExecutionContext,
                         ) {
                             guidanceShows++
+                        }
+
+                        override fun showDirectFailure(
+                            notice: DirectMediaFailureNotice,
+                            executionContext: ActionExecutionContext,
+                        ): Boolean {
+                            if (!noticesAvailable) return false
+                            failureNotices += notice
+                            return true
                         }
                     },
                 nowMillis = { 100 },

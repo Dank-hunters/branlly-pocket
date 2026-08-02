@@ -108,6 +108,13 @@ class MediaExecutionCheckpointCodecTest {
     }
 
     @Test
+    fun `older checkpoint without direct failure notice flag remains decodable`() {
+        val encoded = JSONObject(MediaExecutionCheckpointCodec.encode(checkpoint())).apply { remove("directFailureNoticeShown") }
+
+        assertEquals(false, MediaExecutionCheckpointCodec.decode(encoded.toString())?.directFailureNoticeShown)
+    }
+
+    @Test
     fun `round trip preserves per session baseline and commanded session identity`() {
         val baseline =
             baseline(MediaBaselinePlaybackState.PLAYING).copy(

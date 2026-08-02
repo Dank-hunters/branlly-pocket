@@ -87,10 +87,12 @@ sealed interface MediaSessionCommandResult {
 
     data class NotSupported(
         val reason: String,
+        val directFailureReason: DirectMediaFailureReason? = null,
     ) : MediaSessionCommandResult
 
     data class Failed(
         val reason: String,
+        val directFailureReason: DirectMediaFailureReason? = null,
     ) : MediaSessionCommandResult
 }
 
@@ -198,7 +200,10 @@ class AndroidMediaSessionCommandGateway(
             !BranllyMediaListener.isConnected()
         ) {
             Log.w(TAG, "MediaSession indisponible: listener non autorisé ou déconnecté")
-            return MediaSessionCommandResult.Failed("Le service MediaSession n’est pas disponible.")
+            return MediaSessionCommandResult.Failed(
+                "Le service MediaSession n’est pas disponible.",
+                DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
+            )
         }
         val controllers =
             runCatching {
@@ -207,12 +212,15 @@ class AndroidMediaSessionCommandGateway(
                     .getActiveSessions(ComponentName(appContext, BranllyMediaListener::class.java))
             }.getOrElse {
                 Log.w(TAG, "Accès MediaSession refusé", it)
-                return MediaSessionCommandResult.Failed(it.message ?: "Accès MediaSession refusé.")
+                return MediaSessionCommandResult.Failed(
+                    it.message ?: "Accès MediaSession refusé.",
+                    DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
+                )
             }
         val exactControllers = controllers.filter { it.packageName == action.targetPackage }
         if (exactControllers.isEmpty()) {
             Log.i(TAG, "Aucune session du package cible: ${action.targetPackage}")
-            return MediaSessionCommandResult.NotSupported("Aucune session du package cible.")
+            return MediaSessionCommandResult.NotSupported("Aucune session du package cible.", DirectMediaFailureReason.NO_TARGET_SESSION)
         }
         exactControllers.forEach { controller ->
             val actions = controller.playbackState?.actions ?: 0L
@@ -240,7 +248,10 @@ class AndroidMediaSessionCommandGateway(
                 searchQuery = action.searchQuery,
             ) ?: run {
                 Log.i(TAG, "Session cible sans commande de recherche compatible")
-                return MediaSessionCommandResult.NotSupported("La session n’annonce aucune commande compatible.")
+                return MediaSessionCommandResult.NotSupported(
+                    "La session n’annonce aucune commande compatible.",
+                    DirectMediaFailureReason.COMMAND_NOT_SUPPORTED,
+                )
             }
         val controls = controllers[selection.index].transportControls
         val transport =
@@ -259,7 +270,7 @@ class AndroidMediaSessionCommandGateway(
             MediaSessionCommandResult.Sent(sent, controllers[selection.index].sessionToken.hashCode().toString())
         }.getOrElse {
             Log.w(TAG, "Commande MediaSession refusée", it)
-            MediaSessionCommandResult.Failed(it.message ?: "Commande MediaSession refusée.")
+            MediaSessionCommandResult.Failed(it.message ?: "Commande MediaSession refusée.", DirectMediaFailureReason.COMMAND_EXCEPTION)
         }
     }
 
@@ -279,6 +290,12 @@ fun interface ManualMediaGuidance {
         message: String,
         executionContext: ActionExecutionContext,
     ) = Unit
+
+    /** Displays an already-decided direct playback failure; it never alters media flow. */
+    fun showDirectFailure(
+        notice: DirectMediaFailureNotice,
+        executionContext: ActionExecutionContext,
+    ): Boolean = false
 
     fun clear() = Unit
 }

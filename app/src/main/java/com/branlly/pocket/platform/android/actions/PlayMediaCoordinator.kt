@@ -25,6 +25,37 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.withTimeoutOrNull
 
+enum class DirectMediaFailureReason(
+    val userMessage: String,
+) {
+    NO_TARGET_SESSION("Aucune session multimédia compatible n’a été trouvée."),
+    COMMAND_NOT_SUPPORTED("Le lecteur ne prend pas en charge la lecture depuis une recherche."),
+    COMMAND_REJECTED("La commande multimédia a été refusée."),
+    COMMAND_EXCEPTION("La commande multimédia a rencontré une erreur."),
+    MEDIA_SESSION_ACCESS_UNAVAILABLE("L’accès aux sessions multimédias est indisponible."),
+    PLAYBACK_NOT_CONFIRMED("La lecture n’a pas été confirmée dans le délai prévu."),
+    UNKNOWN_DIRECT_FAILURE("La lecture directe n’a pas pu être utilisée."),
+}
+
+data class DirectMediaFailureNotice(
+    val reason: DirectMediaFailureReason,
+    val mode: MediaLaunchMode,
+    val playerLabel: String,
+    val targetPackage: String,
+    val operationId: String,
+) {
+    val title: String =
+        if (mode == MediaLaunchMode.BACKGROUND_ONLY) "Lecture en arrière-plan impossible" else "Lecture directe impossible"
+
+    val message: String =
+        reason.userMessage +
+            if (mode == MediaLaunchMode.BACKGROUND_ONLY) {
+                " Le lecteur n’a pas été ouvert."
+            } else {
+                " Ouverture du lecteur."
+            }
+}
+
 /** Coordinates one frozen plan, one observer and one terminal result for PLAY_MEDIA. */
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlayMediaCoordinator(
@@ -125,13 +156,41 @@ class PlayMediaCoordinator(
         outcome: kotlinx.coroutines.Deferred<MediaObservedOutcome>,
         observer: MediaOutcomeObserver,
     ): ActionResult {
-        var directFailureReason: DirectFailureReason? = null
+        var directFailureReason: DirectMediaFailureReason? = null
+        var directOutcomeUnavailableHandled = false
         while (nowMillis() < session.globalDeadlineMillis) {
-            outcome.getCompletedOrNull()?.let { return finish(session, it) }
             val active = session.currentOperation()
+            outcome.getCompletedOrNull()?.let { observed ->
+                if (active?.type == MediaOperationType.MEDIA_SESSION && observed is MediaObservedOutcome.Unavailable) {
+                    directFailureReason = DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE
+                    directOutcomeUnavailableHandled = true
+                    // The observer may report unavailable before the direct operation begins.
+                    // Record it as consumed so restoration cannot attempt that command later.
+                    if (active.status == MediaOperationStatus.NOT_STARTED) session.startOperation(active.id)
+                    reportDirectFailure(session, action, context, active.id, directFailureReason)
+                    if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                        return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(directFailureReason)))
+                    }
+                    session.finishOperation(active.id, MediaOperationStatus.FAILED)
+                    return@let
+                }
+                if (!directOutcomeUnavailableHandled) return finish(session, observed)
+                // The observer's unavailable result belongs to the already-failed direct
+                // operation. Do not let that stale result suppress the planned fallback.
+            }
             if (active?.status == MediaOperationStatus.AWAITING_OUTCOME || active?.status == MediaOperationStatus.EFFECT_APPLIED) {
                 val observed = awaitAutomaticOutcome(session, outcome)
                 if (observed != null) {
+                    if (active.type == MediaOperationType.MEDIA_SESSION && observed is MediaObservedOutcome.Unavailable) {
+                        directFailureReason = DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE
+                        directOutcomeUnavailableHandled = true
+                        reportDirectFailure(session, action, context, active.id, directFailureReason)
+                        if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                            return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(directFailureReason)))
+                        }
+                        session.finishOperation(active.id, MediaOperationStatus.FAILED)
+                        continue
+                    }
                     logObservedOutcome(context, observed)
                     return finish(session, observed)
                 }
@@ -140,9 +199,10 @@ class PlayMediaCoordinator(
                     mapOf("nodeId" to context.nodeId.value, "operationType" to active.type.name),
                 )
                 if (active.type == MediaOperationType.MEDIA_SESSION) {
-                    directFailureReason = DirectFailureReason.PLAYBACK_NOT_CONFIRMED
+                    directFailureReason = DirectMediaFailureReason.PLAYBACK_NOT_CONFIRMED
+                    reportDirectFailure(session, action, context, active.id, directFailureReason)
                     if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
-                        return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                        return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(directFailureReason)))
                     }
                 }
                 session.finishOperation(active.id, MediaOperationStatus.COMPLETED)
@@ -192,14 +252,15 @@ class PlayMediaCoordinator(
                         directFailureReason = attempted.reason
                         context.logger.log(
                             "PLAY_MEDIA_DIRECT_FAILED",
-                            mapOf("nodeId" to context.nodeId.value, "reason" to attempted.reason.name),
+                            failureLogFields(context, action, attempted.reason, "operationId" to operation.id),
                         )
+                        reportDirectFailure(session, action, context, operation.id, attempted.reason)
                         if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
                             context.logger.log(
                                 "PLAY_MEDIA_BACKGROUND_ONLY_FAILED",
-                                mapOf("nodeId" to context.nodeId.value, "reason" to attempted.reason.name),
+                                failureLogFields(context, action, attempted.reason, "fallbackForbidden" to true),
                             )
-                            return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                            return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(attempted.reason)))
                         }
                     }
                     session.finishOperation(operation.id, MediaOperationStatus.FAILED)
@@ -214,6 +275,16 @@ class PlayMediaCoordinator(
                     session.finishOperation(operation.id, MediaOperationStatus.AWAITING_OUTCOME)
                     val observed = awaitAutomaticOutcome(session, outcome)
                     if (observed != null) {
+                        if (operation.type == MediaOperationType.MEDIA_SESSION && observed is MediaObservedOutcome.Unavailable) {
+                            directFailureReason = DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE
+                            directOutcomeUnavailableHandled = true
+                            reportDirectFailure(session, action, context, operation.id, directFailureReason)
+                            if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                                return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(directFailureReason)))
+                            }
+                            session.finishOperation(operation.id, MediaOperationStatus.FAILED)
+                            continue
+                        }
                         logObservedOutcome(context, observed)
                         return finish(session, observed)
                     }
@@ -222,9 +293,10 @@ class PlayMediaCoordinator(
                         mapOf("nodeId" to context.nodeId.value, "operationType" to operation.type.name),
                     )
                     if (operation.type == MediaOperationType.MEDIA_SESSION) {
-                        directFailureReason = DirectFailureReason.PLAYBACK_NOT_CONFIRMED
+                        directFailureReason = DirectMediaFailureReason.PLAYBACK_NOT_CONFIRMED
+                        reportDirectFailure(session, action, context, operation.id, directFailureReason)
                         if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
-                            return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                            return finish(session, MediaExecutionResult.Failed(backgroundOnlyFailure(directFailureReason)))
                         }
                     }
                     session.finishOperation(operation.id, MediaOperationStatus.COMPLETED)
@@ -369,11 +441,11 @@ class PlayMediaCoordinator(
                     }
 
                     is MediaSessionCommandResult.NotSupported -> {
-                        Attempt.Failed(command.reason.toDirectFailureReason())
+                        Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
                     }
 
                     is MediaSessionCommandResult.Failed -> {
-                        Attempt.Failed(command.reason.toDirectFailureReason())
+                        Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
                     }
                 }
             }
@@ -404,38 +476,82 @@ class PlayMediaCoordinator(
             }
 
             MediaOperationType.PROVIDER_AUTOMATION -> {
-                Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
+                Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
             }
         }
 
     private fun informPlayerOpening(
         action: ShortcutAction.PlayMedia,
         context: ActionExecutionContext,
-        directFailure: DirectFailureReason?,
+        directFailure: DirectMediaFailureReason?,
     ) {
-        val message =
-            if (action.launchMode == MediaLaunchMode.OPEN_PLAYER) {
-                "Ouverture du lecteur demandée."
-            } else {
-                "Ouverture du lecteur : ${directFailure?.message ?: "lecture non confirmée"}."
-            }
-        guidance.showInfo(message, context)
+        if (action.launchMode == MediaLaunchMode.OPEN_PLAYER) runCatching { guidance.showInfo("Ouverture du lecteur demandée.", context) }
         context.logger.log(
             "PLAY_MEDIA_PLAYER_OPENING",
-            mapOf(
-                "nodeId" to context.nodeId.value,
-                "launchMode" to action.launchMode.name,
+            failureLogFields(
+                context,
+                action,
+                directFailure,
                 "reason" to (directFailure?.name ?: "USER_SELECTED_OPEN_PLAYER"),
             ),
         )
     }
 
-    private fun String.toDirectFailureReason() =
+    private fun reportDirectFailure(
+        session: MediaExecutionSession,
+        action: ShortcutAction.PlayMedia,
+        context: ActionExecutionContext,
+        operationId: String,
+        reason: DirectMediaFailureReason,
+    ) {
+        if (action.launchMode == MediaLaunchMode.OPEN_PLAYER || !session.markDirectFailureNoticeShown()) return
+        val posted =
+            runCatching {
+                guidance.showDirectFailure(
+                    DirectMediaFailureNotice(reason, action.launchMode, action.targetAppLabel, action.targetPackage, operationId),
+                    context,
+                )
+            }.getOrDefault(false)
+        context.logger.log(
+            if (posted) "PLAY_MEDIA_FAILURE_NOTICE_POSTED" else "PLAY_MEDIA_NOTICE_SKIPPED_NOTIFICATIONS_DISABLED",
+            failureLogFields(context, action, reason, "operationId" to operationId),
+        )
+        if (action.launchMode == MediaLaunchMode.AUTOMATIC) {
+            context.logger.log(
+                "PLAY_MEDIA_AUTOMATIC_FALLBACK",
+                failureLogFields(context, action, reason, "fallbackAllowed" to true),
+            )
+        }
+    }
+
+    private fun backgroundOnlyFailure(reason: DirectMediaFailureReason): String = "${reason.userMessage} Le lecteur n’a pas été ouvert."
+
+    private fun failureLogFields(
+        context: ActionExecutionContext,
+        action: ShortcutAction.PlayMedia,
+        reason: DirectMediaFailureReason?,
+        vararg extra: Pair<String, Any>,
+    ): Map<String, Any> =
+        mapOf(
+            "executionId" to context.executionId,
+            "nodeId" to context.nodeId.value,
+            "targetPackage" to action.targetPackage,
+            "launchMode" to action.launchMode.name,
+            "reason" to (reason?.name ?: "USER_SELECTED_OPEN_PLAYER"),
+        ) + extra
+
+    private fun String.toDirectMediaFailureReason() =
         when {
-            contains("Aucune session", ignoreCase = true) -> DirectFailureReason.NO_TARGET_SESSION
-            contains("compatible", ignoreCase = true) || contains("support", ignoreCase = true) -> DirectFailureReason.COMMAND_NOT_SUPPORTED
-            contains("refus", ignoreCase = true) || contains("rejet", ignoreCase = true) -> DirectFailureReason.COMMAND_REJECTED
-            else -> DirectFailureReason.COMMAND_ERROR
+            contains("Aucune session", ignoreCase = true) -> DirectMediaFailureReason.NO_TARGET_SESSION
+
+            contains(
+                "compatible",
+                ignoreCase = true,
+            ) || contains("support", ignoreCase = true) -> DirectMediaFailureReason.COMMAND_NOT_SUPPORTED
+
+            contains("refus", ignoreCase = true) || contains("rejet", ignoreCase = true) -> DirectMediaFailureReason.COMMAND_REJECTED
+
+            else -> DirectMediaFailureReason.COMMAND_EXCEPTION
         }
 
     private fun logObservedOutcome(
@@ -460,11 +576,11 @@ class PlayMediaCoordinator(
         label: String,
         context: ActionExecutionContext,
     ): Attempt {
-        if (intent == null) return Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
+        if (intent == null) return Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
         return when (val result = launcher.launch(intent, label, context)) {
             ActionResult.Completed -> Attempt.Opened
             is ActionResult.UserActionRequired -> Attempt.UserLaunchRequired(result.reason)
-            else -> Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
+            else -> Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
         }
     }
 
@@ -543,22 +659,12 @@ class PlayMediaCoordinator(
         data object Opened : Attempt
 
         data class Failed(
-            val reason: DirectFailureReason,
+            val reason: DirectMediaFailureReason,
         ) : Attempt
 
         data class UserLaunchRequired(
             val reason: String,
         ) : Attempt
-    }
-
-    private enum class DirectFailureReason(
-        val message: String,
-    ) {
-        NO_TARGET_SESSION("aucune session compatible"),
-        COMMAND_NOT_SUPPORTED("commande directe non prise en charge"),
-        COMMAND_REJECTED("commande multimédia refusée"),
-        COMMAND_ERROR("erreur de commande directe"),
-        PLAYBACK_NOT_CONFIRMED("lecture non confirmée"),
     }
 
     private companion object {
