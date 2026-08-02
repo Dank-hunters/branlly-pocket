@@ -145,6 +145,8 @@ data class MediaOperation(
     val executionCount: Int = 0,
     val reason: String? = null,
     val commandedSessionId: String? = null,
+    /** Persisted before invoking a non-transactional external media command. */
+    val dispatchReserved: Boolean = false,
 )
 
 data class MediaExecutionPlan(
@@ -302,6 +304,40 @@ class MediaExecutionSession(
                         } else {
                             it
                         }
+                    },
+            )
+        }
+
+    /**
+     * Creates the durable at-most-once barrier immediately before the Android call.
+     * A restored reservation is deliberately never retried automatically.
+     */
+    fun reserveDispatch(operationId: String): Boolean =
+        update { current ->
+            if (current.terminal != null) return@update null
+            val operation = current.operations.singleOrNull { it.id == operationId } ?: return@update null
+            if (operation.status != MediaOperationStatus.RUNNING || operation.dispatchReserved) return@update null
+            current.copy(
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == operationId) it.copy(dispatchReserved = true) else it
+                    },
+            )
+        }
+
+    /** Turns an ambiguous restored reservation into observation without a second send. */
+    fun resumeReservedDispatch(operationId: String): Boolean =
+        update { current ->
+            if (current.terminal != null) return@update null
+            val operation = current.operations.singleOrNull { it.id == operationId } ?: return@update null
+            if (operation.status != MediaOperationStatus.RUNNING || !operation.dispatchReserved) return@update null
+            current.copy(
+                state = MediaExecutionState.AWAIT_OUTCOME,
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == operationId) it.copy(status = MediaOperationStatus.AWAITING_OUTCOME, effectApplied = true) else it
                     },
             )
         }

@@ -94,7 +94,8 @@ object MediaExecutionCheckpointCodec {
                                 .put("effectApplied", operation.effectApplied)
                                 .put("executionCount", operation.executionCount)
                                 .put("reason", operation.reason)
-                                .put("commandedSessionId", operation.commandedSessionId),
+                                .put("commandedSessionId", operation.commandedSessionId)
+                                .put("dispatchReserved", operation.dispatchReserved),
                         )
                     }
                 },
@@ -146,6 +147,7 @@ object MediaExecutionCheckpointCodec {
                                 executionCount = item.optInt("executionCount", 0),
                                 reason = optionalString(item, "reason"),
                                 commandedSessionId = optionalString(item, "commandedSessionId"),
+                                dispatchReserved = item.optBoolean("dispatchReserved", false),
                             ),
                         )
                     }

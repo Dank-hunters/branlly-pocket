@@ -66,6 +66,22 @@ class MediaExecutionSessionTest {
     }
 
     @Test
+    fun `reserved direct dispatch is never automatically sent twice after restore`() {
+        val operation = MediaOperation("session", MediaOperationType.MEDIA_SESSION, true)
+        val session = restore(checkpoint(state = MediaExecutionState.EXECUTE_OPERATION, operation = operation))
+
+        assertTrue(session.startOperation("session"))
+        assertTrue(session.reserveDispatch("session"))
+        assertFalse(session.reserveDispatch("session"))
+        val restored = restore(session.checkpoint())
+
+        assertTrue(restored.resumeReservedDispatch("session"))
+        assertFalse(restored.startOperation("session"))
+        assertFalse(restored.reserveDispatch("session"))
+        assertEquals(MediaOperationStatus.AWAITING_OUTCOME, restored.currentOperation()?.status)
+    }
+
+    @Test
     fun `continuation creation and consumption are exactly once`() {
         val operation =
             MediaOperation("provider", MediaOperationType.PROVIDER_SEARCH, true, MediaOperationStatus.RUNNING, executionCount = 1)

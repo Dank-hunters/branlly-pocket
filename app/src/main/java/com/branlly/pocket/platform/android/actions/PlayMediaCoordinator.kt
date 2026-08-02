@@ -109,7 +109,7 @@ class PlayMediaCoordinator(
                     )
                 observer = observerFactory(action.targetPackage, restoredCheckpoint.baseline)
             }
-            if (!planMatchesLaunchMode(session.checkpoint().plan, action.launchMode)) {
+            if (!isRestoredPlanValid(session.checkpoint(), action)) {
                 observer.close()
                 return@coroutineScope ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré.")
             }
@@ -122,6 +122,15 @@ class PlayMediaCoordinator(
                     observer.awaitOutcome((session.globalDeadlineMillis - nowMillis()).coerceAtLeast(1))
                 }
             try {
+                session.currentOperation()?.let { current ->
+                    if (current.status == MediaOperationStatus.RUNNING && current.dispatchReserved) {
+                        context.logger.log(
+                            "PLAY_MEDIA_DISPATCH_RESERVATION_RESTORED",
+                            mapOf("nodeId" to context.nodeId.value, "operationId" to current.id),
+                        )
+                        session.resumeReservedDispatch(current.id)
+                    }
+                }
                 session
                     .currentOperation()
                     ?.takeIf { it.status in setOf(MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME) }
@@ -219,6 +228,9 @@ class PlayMediaCoordinator(
                         },
                     )
             if (!session.startOperation(operation.id)) return finish(session, MediaExecutionResult.Failed("Opération média déjà exécutée."))
+            if (operation.type == MediaOperationType.MEDIA_SESSION && !session.reserveDispatch(operation.id)) {
+                return finish(session, MediaExecutionResult.Failed("La commande média a déjà été réservée pour cette tentative."))
+            }
             context.logger.log(
                 "PLAY_MEDIA_OPERATION_STARTED",
                 mapOf(
@@ -351,23 +363,52 @@ class PlayMediaCoordinator(
         return if (remaining == 0L) outcome.getCompletedOrNull() else withTimeoutOrNull(remaining) { outcome.await() }
     }
 
-    private fun planMatchesLaunchMode(
-        plan: MediaExecutionPlan,
-        mode: MediaLaunchMode,
-    ): Boolean =
-        when (mode) {
+    /** Rejects malformed/restored plans before they can produce an external effect. */
+    private fun isRestoredPlanValid(
+        checkpoint: MediaExecutionCheckpoint,
+        action: ShortcutAction.PlayMedia,
+    ): Boolean {
+        val operations = checkpoint.plan.operations
+        if (operations.isEmpty() || operations.map(MediaOperation::id).distinct().size != operations.size) return false
+        if (operations.count {
+                it.status in
+                    setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
+            } >
+            1
+        ) {
+            return false
+        }
+        if (operations.any { it.executionCount < 0 || (it.dispatchReserved && it.executionCount == 0) }) return false
+        val types = operations.map(MediaOperation::type)
+        return when (action.launchMode) {
             MediaLaunchMode.AUTOMATIC -> {
-                true
+                val expected = buildPlan(action).operations.map(MediaOperation::type)
+                types.isOrderedSubsequenceOf(expected)
             }
 
             MediaLaunchMode.BACKGROUND_ONLY -> {
-                plan.operations.all { it.type == MediaOperationType.MEDIA_SESSION }
+                types == listOf(MediaOperationType.MEDIA_SESSION)
             }
 
             MediaLaunchMode.OPEN_PLAYER -> {
-                plan.operations.none { it.type == MediaOperationType.MEDIA_SESSION }
+                types.isOrderedSubsequenceOf(buildPlan(action).operations.map(MediaOperation::type))
             }
         }
+    }
+
+    /** Historical plans may be a persisted prefix/suffix, never a reordered or widened plan. */
+    private fun List<MediaOperationType>.isOrderedSubsequenceOf(expected: List<MediaOperationType>): Boolean {
+        var position = 0
+        return all { type ->
+            val relative = expected.subList(position, expected.size).indexOf(type)
+            if (relative < 0) {
+                false
+            } else {
+                position += relative + 1
+                true
+            }
+        }
+    }
 
     private fun buildPlan(action: ShortcutAction.PlayMedia): MediaExecutionPlan =
         MediaExecutionPlan(
