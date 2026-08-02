@@ -14,6 +14,8 @@ sealed interface InputValue<out T> {
 
 enum class TriggerValueKey { DEVICE_NAME, WIFI_SSID, BATTERY_LEVEL, NFC_TAG }
 
+enum class MediaLaunchMode { AUTOMATIC, BACKGROUND_ONLY, OPEN_PLAYER }
+
 sealed interface ShortcutAction {
     val kind: ActionKind
 
@@ -37,6 +39,8 @@ sealed interface ShortcutAction {
         val preferredContentType: PreferredMediaContentType = PreferredMediaContentType.AUTO,
         val selectionPolicy: MediaSelectionPolicy = MediaSelectionPolicy.BEST_PLAYABLE_MATCH,
         val timeoutMs: Long = 120_000L,
+        val launchMode: MediaLaunchMode = MediaLaunchMode.AUTOMATIC,
+        /** Kept only to decode routines saved before launchMode existed. */
         val allowManualFallback: Boolean = true,
         val allowAdvancedAutomation: Boolean = false,
         val errorStrategy: MediaErrorStrategy = MediaErrorStrategy.TRY_NEXT_STRATEGY,

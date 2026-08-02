@@ -3,6 +3,7 @@ package com.branlly.pocket.data
 import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.InputValue
 import com.branlly.pocket.domain.model.MediaErrorStrategy
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.MediaSelectionPolicy
 import com.branlly.pocket.domain.model.PreferredMediaContentType
 import com.branlly.pocket.domain.model.SettingsPanel
@@ -80,6 +81,7 @@ private fun defaultCodecs(): List<ActionJsonCodec<out ShortcutAction>> =
                 .put("preferredContentType", action.preferredContentType.name)
                 .put("selectionPolicy", action.selectionPolicy.name)
                 .put("timeoutMs", action.timeoutMs)
+                .put("launchMode", action.launchMode.name)
                 .put("allowManualFallback", action.allowManualFallback)
                 .put("allowAdvancedAutomation", action.allowAdvancedAutomation)
                 .put("errorStrategy", action.errorStrategy.name)
@@ -94,6 +96,9 @@ private fun defaultCodecs(): List<ActionJsonCodec<out ShortcutAction>> =
                 preferredContentType = enumValue(value.optString("preferredContentType"), PreferredMediaContentType.AUTO),
                 selectionPolicy = enumValue(value.optString("selectionPolicy"), MediaSelectionPolicy.BEST_PLAYABLE_MATCH),
                 timeoutMs = value.optLong("timeoutMs", 120_000L).coerceIn(15_000L, 300_000L),
+                // `allowManualFallback` only controlled the legacy guidance step; it never
+                // disabled provider search or activity launch, so it must not alter launch mode.
+                launchMode = enumValue(value.optString("launchMode"), MediaLaunchMode.AUTOMATIC),
                 allowManualFallback = value.optBoolean("allowManualFallback", true),
                 allowAdvancedAutomation = value.optBoolean("allowAdvancedAutomation", false),
                 errorStrategy = enumValue(value.optString("errorStrategy"), MediaErrorStrategy.TRY_NEXT_STRATEGY),
@@ -221,32 +226,60 @@ private inline fun <reified A : ShortcutAction> codec(
     object : ActionJsonCodec<A> {
         override val kind = kind
         override val actionClass: Class<A> = A::class.java
+
         override fun encode(action: A): JSONObject = encode(action)
+
         override fun decode(value: JSONObject): A? = runCatching { decode(value) }.getOrNull()
     }
 
-private fun encodeInput(input: InputValue<*>): JSONObject = when (input) {
-    is InputValue.Fixed<*> -> JSONObject().put("source", "fixed").put("value", input.value)
-    InputValue.AskAtRuntime -> JSONObject().put("source", "runtime")
-    is InputValue.FromTrigger -> JSONObject().put("source", "trigger").put("key", input.key.name)
-}
+private fun encodeInput(input: InputValue<*>): JSONObject =
+    when (input) {
+        is InputValue.Fixed<*> -> JSONObject().put("source", "fixed").put("value", input.value)
+        InputValue.AskAtRuntime -> JSONObject().put("source", "runtime")
+        is InputValue.FromTrigger -> JSONObject().put("source", "trigger").put("key", input.key.name)
+    }
 
 private fun decodeStringInput(value: JSONObject?): InputValue<String>? = decodeInput(value) { it as? String }
+
 private fun decodeIntInput(value: JSONObject?): InputValue<Int>? = decodeInput(value) { (it as? Number)?.toInt() }
 
-private fun <T> decodeInput(value: JSONObject?, fixed: (Any?) -> T?): InputValue<T>? {
+private fun <T> decodeInput(
+    value: JSONObject?,
+    fixed: (Any?) -> T?,
+): InputValue<T>? {
     val item = value ?: return null
     return when (item.optString("source")) {
-        "fixed" -> fixed(item.opt("value"))?.let { fixedValue -> InputValue.Fixed(fixedValue) }
-        "runtime" -> InputValue.AskAtRuntime
-        "trigger" -> item.optionalString("key")
-            ?.let { key -> runCatching { TriggerValueKey.valueOf(key) }.getOrNull() }
-            ?.let { key -> InputValue.FromTrigger(key) }
-        else -> null
+        "fixed" -> {
+            fixed(item.opt("value"))?.let { fixedValue -> InputValue.Fixed(fixedValue) }
+        }
+
+        "runtime" -> {
+            InputValue.AskAtRuntime
+        }
+
+        "trigger" -> {
+            item
+                .optionalString("key")
+                ?.let { key -> runCatching { TriggerValueKey.valueOf(key) }.getOrNull() }
+                ?.let { key -> InputValue.FromTrigger(key) }
+        }
+
+        else -> {
+            null
+        }
     }
 }
 
-private fun JSONObject.putOptional(key: String, value: Any?): JSONObject = apply { if (value != null) put(key, value) }
+private fun JSONObject.putOptional(
+    key: String,
+    value: Any?,
+): JSONObject = apply { if (value != null) put(key, value) }
+
 private fun JSONObject.optionalString(key: String): String? = optString(key).trim().take(MAX_TEXT_LENGTH).ifBlank { null }
-private inline fun <reified T : Enum<T>> enumValue(raw: String, fallback: T): T = runCatching { enumValueOf<T>(raw) }.getOrDefault(fallback)
+
+private inline fun <reified T : Enum<T>> enumValue(
+    raw: String,
+    fallback: T,
+): T = runCatching { enumValueOf<T>(raw) }.getOrDefault(fallback)
+
 private const val MAX_TEXT_LENGTH = 500

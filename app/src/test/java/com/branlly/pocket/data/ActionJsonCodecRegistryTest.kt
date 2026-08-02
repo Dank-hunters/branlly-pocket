@@ -1,7 +1,9 @@
 package com.branlly.pocket.data
 
 import com.branlly.pocket.domain.model.InputValue
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.ShortcutAction
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -30,6 +32,33 @@ class ActionJsonCodecRegistryTest {
                 errorStrategy = com.branlly.pocket.domain.model.MediaErrorStrategy.STOP_ON_FIRST_FAILURE,
             )
         assertEquals(action, ActionJsonCodecRegistry.DEFAULT.decode(ActionJsonCodecRegistry.DEFAULT.encode(action)))
+    }
+
+    @Test
+    fun `PLAY_MEDIA codec preserves all launch modes`() {
+        MediaLaunchMode.entries.forEach { mode ->
+            val action = ShortcutAction.PlayMedia("Player", "example.player", searchQuery = "query", launchMode = mode)
+            assertEquals(action, ActionJsonCodecRegistry.DEFAULT.decode(ActionJsonCodecRegistry.DEFAULT.encode(action)))
+        }
+    }
+
+    @Test
+    fun `legacy PLAY_MEDIA without launch mode remains automatic`() {
+        val automatic =
+            JSONObject()
+                .put(
+                    "type",
+                    "PLAY_MEDIA",
+                ).put("targetAppLabel", "Player")
+                .put("targetPackage", "example.player")
+                .put("searchQuery", "query")
+        val background = JSONObject(automatic.toString()).put("allowManualFallback", false)
+
+        assertEquals(MediaLaunchMode.AUTOMATIC, (ActionJsonCodecRegistry.DEFAULT.decode(automatic) as ShortcutAction.PlayMedia).launchMode)
+        assertEquals(
+            MediaLaunchMode.AUTOMATIC,
+            (ActionJsonCodecRegistry.DEFAULT.decode(background) as ShortcutAction.PlayMedia).launchMode,
+        )
     }
 
     @Test

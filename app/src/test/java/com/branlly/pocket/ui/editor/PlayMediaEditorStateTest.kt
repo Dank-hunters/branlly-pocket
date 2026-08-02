@@ -1,5 +1,6 @@
 package com.branlly.pocket.ui.editor
 
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.ShortcutAction
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -7,6 +8,11 @@ import org.junit.Test
 
 class PlayMediaEditorStateTest {
     private val action = ShortcutAction.PlayMedia("Player", "example.player", searchQuery = "old", mediaUri = "https://old")
+
+    @Test
+    fun `new PLAY_MEDIA action defaults to automatic launch`() {
+        assertEquals(MediaLaunchMode.AUTOMATIC, ShortcutAction.PlayMedia("", "", searchQuery = "").launchMode)
+    }
 
     @Test
     fun `search mode retains query and clears URI`() {

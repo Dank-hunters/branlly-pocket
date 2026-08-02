@@ -41,6 +41,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.core.graphics.drawable.toBitmap
 import com.branlly.pocket.domain.model.MediaErrorStrategy
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.MediaSelectionPolicy
 import com.branlly.pocket.domain.model.PreferredMediaContentType
 import com.branlly.pocket.domain.model.ShortcutAction
@@ -187,6 +188,28 @@ internal fun PlayMediaForm(
         }
     }
 
+    HudSectionHeader("Mode de lancement", "Choisissez si Branlly peut ouvrir le lecteur")
+    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        MediaLaunchMode.entries.forEach { mode ->
+            HudPanel(
+                modifier = Modifier.fillMaxWidth().clickable { onChange(action.copy(launchMode = mode)) },
+                borderColor = if (mode == action.launchMode) HudColors.Success else HudColors.Grid,
+            ) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f)) {
+                        Text(mode.label(), fontWeight = FontWeight.Medium)
+                        Text(
+                            mode.description(),
+                            color = HudColors.TextSecondary,
+                            style = androidx.compose.material3.MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                    if (mode == action.launchMode) Text("Sélectionné", color = HudColors.Success)
+                }
+            }
+        }
+    }
+
     HudPanel(
         modifier = Modifier.fillMaxWidth().clickable { advanced = !advanced },
         borderColor = HudColors.Grid,
@@ -232,7 +255,6 @@ internal fun PlayMediaForm(
             onValueChange = { onChange(action.copy(timeoutMs = it.roundToInt().toLong().coerceIn(15, 300) * 1_000)) },
             valueRange = 15f..300f,
         )
-        Toggle("Autoriser le fallback manuel", action.allowManualFallback) { onChange(action.copy(allowManualFallback = it)) }
         Toggle("Automatisation avancée — indisponible dans cette phase", false, enabled = false) {}
         HudSectionHeader("Stratégie d’erreur")
         FlowRow(
@@ -281,6 +303,20 @@ private fun PreferredMediaContentType.label() =
         PreferredMediaContentType.VIDEO -> "Vidéo"
         PreferredMediaContentType.PLAYLIST -> "Playlist"
         PreferredMediaContentType.PODCAST -> "Podcast"
+    }
+
+private fun MediaLaunchMode.label() =
+    when (this) {
+        MediaLaunchMode.AUTOMATIC -> "Automatique"
+        MediaLaunchMode.BACKGROUND_ONLY -> "Arrière-plan uniquement"
+        MediaLaunchMode.OPEN_PLAYER -> "Ouvrir le lecteur"
+    }
+
+private fun MediaLaunchMode.description() =
+    when (this) {
+        MediaLaunchMode.AUTOMATIC -> "Branlly essaie d’abord en arrière-plan, puis ouvre la recherche si nécessaire."
+        MediaLaunchMode.BACKGROUND_ONLY -> "Branlly tente uniquement une commande en arrière-plan ; le lecteur ne sera jamais ouvert."
+        MediaLaunchMode.OPEN_PLAYER -> "Branlly ouvre directement le lecteur sur la recherche."
     }
 
 private fun MediaSelectionPolicy.label() =

@@ -274,5 +274,11 @@ fun interface ManualMediaGuidance {
         executionContext: ActionExecutionContext,
     )
 
+    /** Short, non-persistent explanation shown when Branlly opens the player. */
+    fun showInfo(
+        message: String,
+        executionContext: ActionExecutionContext,
+    ) = Unit
+
     fun clear() = Unit
 }

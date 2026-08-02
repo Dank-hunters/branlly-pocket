@@ -13,6 +13,7 @@ import com.branlly.pocket.domain.execution.RegisteredAction
 import com.branlly.pocket.domain.model.ActionCategory
 import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.InputValue
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.SettingsPanel
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.SoundMode
@@ -100,7 +101,9 @@ object AndroidActionRegistry {
                     editorKey = ActionEditorKey.PLAY_MEDIA,
                     createDefault = { ShortcutAction.PlayMedia("", "", searchQuery = "") },
                     summary = { action ->
-                        "Jouer « ${action.searchQuery.ifBlank { "média" }} » avec ${action.targetAppLabel.ifBlank { "une application" }}"
+                        "Jouer « ${action.searchQuery.ifBlank {
+                            "média"
+                        }} »\n${action.targetAppLabel.ifBlank { "une application" }} · ${action.launchMode.label()}"
                     },
                     handler =
                         PlayMediaHandler(
@@ -231,3 +234,10 @@ object AndroidActionRegistry {
         )
     }
 }
+
+private fun MediaLaunchMode.label() =
+    when (this) {
+        MediaLaunchMode.AUTOMATIC -> "Automatique"
+        MediaLaunchMode.BACKGROUND_ONLY -> "Arrière-plan uniquement"
+        MediaLaunchMode.OPEN_PLAYER -> "Ouvrir le lecteur"
+    }

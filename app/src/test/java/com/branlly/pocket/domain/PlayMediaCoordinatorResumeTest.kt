@@ -16,6 +16,7 @@ import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.media.MediaProviderCapability
 import com.branlly.pocket.domain.media.MediaSessionBaseline
 import com.branlly.pocket.domain.model.ActionKind
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.model.ShortcutId
@@ -129,6 +130,82 @@ class PlayMediaCoordinatorResumeTest {
         }
 
     @Test
+    fun `background only fails without opening player when no compatible session exists`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.commandResult = MediaSessionCommandResult.NotSupported("Aucune session du package cible.")
+
+            val result = fixture.coordinator().execute(action(MediaLaunchMode.BACKGROUND_ONLY), context())
+
+            assertEquals(ActionResult.Failed("La lecture en arrière-plan n’est pas disponible pour ce lecteur dans l’état actuel."), result)
+            assertEquals(1, fixture.commandCalls)
+            assertEquals(0, fixture.launchCalls)
+        }
+
+    @Test
+    fun `background only timeout never falls back to player`() =
+        runBlocking {
+            val fixture = Fixture()
+            val applied =
+                checkpoint(
+                    state = MediaExecutionState.AWAIT_OUTCOME,
+                    operation =
+                        MediaOperation(
+                            "media_session",
+                            MediaOperationType.MEDIA_SESSION,
+                            true,
+                            MediaOperationStatus.AWAITING_OUTCOME,
+                            effectApplied = true,
+                            executionCount = 1,
+                        ),
+                    continuationCreated = false,
+                    continuationConsumed = false,
+                    automaticDeadlineMillis = 100,
+                )
+
+            val result = fixture.coordinator().execute(action(MediaLaunchMode.BACKGROUND_ONLY), context(), workflow(applied))
+
+            assertEquals(ActionResult.Failed("La lecture en arrière-plan n’est pas disponible pour ce lecteur dans l’état actuel."), result)
+            assertEquals(0, fixture.commandCalls)
+            assertEquals(0, fixture.launchCalls)
+        }
+
+    @Test
+    fun `open player skips direct media session`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.completeOnLaunch = true
+
+            val result = fixture.coordinator().execute(action(MediaLaunchMode.OPEN_PLAYER), context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(0, fixture.commandCalls)
+            assertEquals(1, fixture.launchCalls)
+        }
+
+    @Test
+    fun `open player URI opens directly without a media session command`() =
+        runBlocking {
+            val fixture = Fixture()
+            fixture.directUriIntent = Intent("test.uri")
+            fixture.completeOnLaunch = true
+            val action =
+                ShortcutAction.PlayMedia(
+                    "Player",
+                    "target.player",
+                    searchQuery = "",
+                    mediaUri = "https://example.test/media",
+                    launchMode = MediaLaunchMode.OPEN_PLAYER,
+                )
+
+            val result = fixture.coordinator().execute(action, context())
+
+            assertEquals(ActionResult.Completed, result)
+            assertEquals(0, fixture.commandCalls)
+            assertEquals(1, fixture.launchCalls)
+        }
+
+    @Test
     fun `applied media session command is not replayed from checkpoint`() =
         runBlocking {
             val fixture = Fixture(MediaObservedOutcome.PlaybackStarted("new", false, false))
@@ -195,6 +272,7 @@ class PlayMediaCoordinatorResumeTest {
         var completeOnCommand = false
         var completeOnLaunch = false
         var commandResult: MediaSessionCommandResult = MediaSessionCommandResult.Sent("playFromSearch", "commanded")
+        var directUriIntent: Intent? = null
         val dispatchedSessionIds = mutableListOf<String?>()
 
         fun coordinator() =
@@ -221,7 +299,7 @@ class PlayMediaCoordinatorResumeTest {
 
                         override fun supports(target: AppTarget) = true
 
-                        override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? = null
+                        override fun buildDirectContentIntent(request: MediaOpenRequest): Intent? = directUriIntent
 
                         override fun buildSearchIntent(request: MediaOpenRequest): Intent = Intent("test.search")
                     },
@@ -260,7 +338,8 @@ class PlayMediaCoordinatorResumeTest {
             )
     }
 
-    private fun action() = ShortcutAction.PlayMedia("Player", "target.player", searchQuery = "query")
+    private fun action(mode: MediaLaunchMode = MediaLaunchMode.AUTOMATIC) =
+        ShortcutAction.PlayMedia("Player", "target.player", searchQuery = "query", launchMode = mode)
 
     private fun context() =
         ActionExecutionContext(

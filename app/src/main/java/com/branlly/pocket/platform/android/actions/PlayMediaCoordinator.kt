@@ -16,6 +16,7 @@ import com.branlly.pocket.domain.media.MediaOperationType
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
 import com.branlly.pocket.domain.media.MediaSessionBaseline
 import com.branlly.pocket.domain.model.ActionKind
+import com.branlly.pocket.domain.model.MediaLaunchMode
 import com.branlly.pocket.domain.model.ShortcutAction
 import com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint
 import kotlinx.coroutines.CoroutineStart
@@ -77,6 +78,10 @@ class PlayMediaCoordinator(
                     )
                 observer = observerFactory(action.targetPackage, restoredCheckpoint.baseline)
             }
+            if (!planMatchesLaunchMode(session.checkpoint().plan, action.launchMode)) {
+                observer.close()
+                return@coroutineScope ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré.")
+            }
             if (session.globalDeadlineMillis <= nowMillis()) {
                 observer.close()
                 return@coroutineScope ActionResult.TimedOut("Le workflow PLAY_MEDIA V3 a expiré.")
@@ -120,6 +125,7 @@ class PlayMediaCoordinator(
         outcome: kotlinx.coroutines.Deferred<MediaObservedOutcome>,
         observer: MediaOutcomeObserver,
     ): ActionResult {
+        var directFailureReason: DirectFailureReason? = null
         while (nowMillis() < session.globalDeadlineMillis) {
             outcome.getCompletedOrNull()?.let { return finish(session, it) }
             val active = session.currentOperation()
@@ -133,17 +139,41 @@ class PlayMediaCoordinator(
                     "PLAY_MEDIA_OUTCOME_TIMEOUT",
                     mapOf("nodeId" to context.nodeId.value, "operationType" to active.type.name),
                 )
+                if (active.type == MediaOperationType.MEDIA_SESSION) {
+                    directFailureReason = DirectFailureReason.PLAYBACK_NOT_CONFIRMED
+                    if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                        return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                    }
+                }
                 session.finishOperation(active.id, MediaOperationStatus.COMPLETED)
                 continue
             }
             val operation =
                 session.nextOperation()
-                    ?: return finish(session, MediaExecutionResult.TimedOut("Aucune opération média restante."))
+                    ?: return finish(
+                        session,
+                        if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                            MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE)
+                        } else {
+                            MediaExecutionResult.TimedOut("Aucune opération média restante.")
+                        },
+                    )
             if (!session.startOperation(operation.id)) return finish(session, MediaExecutionResult.Failed("Opération média déjà exécutée."))
             context.logger.log(
                 "PLAY_MEDIA_OPERATION_STARTED",
-                mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id, "operationType" to operation.type.name),
+                mapOf(
+                    "nodeId" to context.nodeId.value,
+                    "operationId" to operation.id,
+                    "operationType" to operation.type.name,
+                    "launchMode" to action.launchMode.name,
+                ),
             )
+            if (
+                operation.type == MediaOperationType.PROVIDER_SEARCH ||
+                (operation.type == MediaOperationType.DIRECT_URI && action.launchMode == MediaLaunchMode.OPEN_PLAYER)
+            ) {
+                informPlayerOpening(action, context, directFailureReason)
+            }
             val attempted = attempt(session, operation, action, context, observer)
             context.logger.log(
                 "PLAY_MEDIA_OPERATION_RESULT",
@@ -157,7 +187,21 @@ class PlayMediaCoordinator(
                     return ActionResult.UserActionRequired(attempted.reason, checkpoint.toWorkflowCheckpoint())
                 }
 
-                Attempt.Failed -> {
+                is Attempt.Failed -> {
+                    if (operation.type == MediaOperationType.MEDIA_SESSION) {
+                        directFailureReason = attempted.reason
+                        context.logger.log(
+                            "PLAY_MEDIA_DIRECT_FAILED",
+                            mapOf("nodeId" to context.nodeId.value, "reason" to attempted.reason.name),
+                        )
+                        if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                            context.logger.log(
+                                "PLAY_MEDIA_BACKGROUND_ONLY_FAILED",
+                                mapOf("nodeId" to context.nodeId.value, "reason" to attempted.reason.name),
+                            )
+                            return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                        }
+                    }
                     session.finishOperation(operation.id, MediaOperationStatus.FAILED)
                 }
 
@@ -177,6 +221,12 @@ class PlayMediaCoordinator(
                         "PLAY_MEDIA_OUTCOME_TIMEOUT",
                         mapOf("nodeId" to context.nodeId.value, "operationType" to operation.type.name),
                     )
+                    if (operation.type == MediaOperationType.MEDIA_SESSION) {
+                        directFailureReason = DirectFailureReason.PLAYBACK_NOT_CONFIRMED
+                        if (action.launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+                            return finish(session, MediaExecutionResult.Failed(BACKGROUND_ONLY_FAILURE))
+                        }
+                    }
                     session.finishOperation(operation.id, MediaOperationStatus.COMPLETED)
                 }
             }
@@ -206,7 +256,7 @@ class PlayMediaCoordinator(
                 )
             }
 
-            Attempt.Failed -> {
+            is Attempt.Failed -> {
                 finish(session, MediaExecutionResult.Failed("Le lancement média repris a échoué."))
             }
 
@@ -229,13 +279,60 @@ class PlayMediaCoordinator(
         return if (remaining == 0L) outcome.getCompletedOrNull() else withTimeoutOrNull(remaining) { outcome.await() }
     }
 
+    private fun planMatchesLaunchMode(
+        plan: MediaExecutionPlan,
+        mode: MediaLaunchMode,
+    ): Boolean =
+        when (mode) {
+            MediaLaunchMode.AUTOMATIC -> {
+                true
+            }
+
+            MediaLaunchMode.BACKGROUND_ONLY -> {
+                plan.operations.all { it.type == MediaOperationType.MEDIA_SESSION }
+            }
+
+            MediaLaunchMode.OPEN_PLAYER -> {
+                plan.operations.none { it.type == MediaOperationType.MEDIA_SESSION }
+            }
+        }
+
     private fun buildPlan(action: ShortcutAction.PlayMedia): MediaExecutionPlan =
         MediaExecutionPlan(
-            buildList {
-                if (!action.mediaUri.isNullOrBlank()) add(MediaOperation("direct_uri", MediaOperationType.DIRECT_URI, true))
-                add(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
-                add(MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true))
-                if (action.allowManualFallback) add(MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false))
+            when (action.launchMode) {
+                MediaLaunchMode.AUTOMATIC -> {
+                    buildList {
+                        if (!action.mediaUri.isNullOrBlank()) add(MediaOperation("direct_uri", MediaOperationType.DIRECT_URI, true))
+                        add(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
+                        add(MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true))
+                        if (action.allowManualFallback) {
+                            add(
+                                MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false),
+                            )
+                        }
+                    }
+                }
+
+                MediaLaunchMode.BACKGROUND_ONLY -> {
+                    listOf(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
+                }
+
+                MediaLaunchMode.OPEN_PLAYER -> {
+                    buildList {
+                        // URI actions have no query for provider search. Reuse the existing
+                        // activity-opening URI operation without ever sending a media command.
+                        if (!action.mediaUri.isNullOrBlank()) {
+                            add(MediaOperation("direct_uri", MediaOperationType.DIRECT_URI, true))
+                        } else {
+                            add(MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true))
+                        }
+                        if (action.allowManualFallback) {
+                            add(
+                                MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false),
+                            )
+                        }
+                    }
+                }
             },
         )
 
@@ -255,24 +352,46 @@ class PlayMediaCoordinator(
             }
 
             MediaOperationType.MEDIA_SESSION -> {
+                context.logger.log(
+                    "PLAY_MEDIA_DIRECT_ATTEMPT",
+                    mapOf("nodeId" to context.nodeId.value, "launchMode" to action.launchMode.name),
+                )
                 observer.capturePreDispatchState()
                 when (val command = commands.request(action)) {
                     is MediaSessionCommandResult.Sent -> {
+                        context.logger.log(
+                            "PLAY_MEDIA_DIRECT_COMMAND_SENT",
+                            mapOf("nodeId" to context.nodeId.value, "sessionId" to command.sessionId),
+                        )
                         session.recordCommandedSession(operation.id, command.sessionId)
                         observer.onOperationDispatched(command.sessionId)
                         Attempt.Opened
                     }
 
-                    is MediaSessionCommandResult.NotSupported, is MediaSessionCommandResult.Failed -> {
-                        Attempt.Failed
+                    is MediaSessionCommandResult.NotSupported -> {
+                        Attempt.Failed(command.reason.toDirectFailureReason())
+                    }
+
+                    is MediaSessionCommandResult.Failed -> {
+                        Attempt.Failed(command.reason.toDirectFailureReason())
                     }
                 }
             }
 
             MediaOperationType.PROVIDER_SEARCH -> {
                 context.logger.log(
-                    "PLAY_MEDIA_PROVIDER_SEARCH_FALLBACK",
-                    mapOf("nodeId" to context.nodeId.value, "targetPackage" to action.targetPackage),
+                    if (action.launchMode ==
+                        MediaLaunchMode.OPEN_PLAYER
+                    ) {
+                        "PLAY_MEDIA_OPEN_PLAYER_REQUESTED"
+                    } else {
+                        "PLAY_MEDIA_PROVIDER_SEARCH_FALLBACK"
+                    },
+                    mapOf(
+                        "nodeId" to context.nodeId.value,
+                        "targetPackage" to action.targetPackage,
+                        "launchMode" to action.launchMode.name,
+                    ),
                 )
                 observer.capturePreDispatchState()
                 launch(adapter.buildSearchIntent(action.request()), action.targetAppLabel, context).also {
@@ -285,8 +404,38 @@ class PlayMediaCoordinator(
             }
 
             MediaOperationType.PROVIDER_AUTOMATION -> {
-                Attempt.Failed
+                Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
             }
+        }
+
+    private fun informPlayerOpening(
+        action: ShortcutAction.PlayMedia,
+        context: ActionExecutionContext,
+        directFailure: DirectFailureReason?,
+    ) {
+        val message =
+            if (action.launchMode == MediaLaunchMode.OPEN_PLAYER) {
+                "Ouverture du lecteur demandée."
+            } else {
+                "Ouverture du lecteur : ${directFailure?.message ?: "lecture non confirmée"}."
+            }
+        guidance.showInfo(message, context)
+        context.logger.log(
+            "PLAY_MEDIA_PLAYER_OPENING",
+            mapOf(
+                "nodeId" to context.nodeId.value,
+                "launchMode" to action.launchMode.name,
+                "reason" to (directFailure?.name ?: "USER_SELECTED_OPEN_PLAYER"),
+            ),
+        )
+    }
+
+    private fun String.toDirectFailureReason() =
+        when {
+            contains("Aucune session", ignoreCase = true) -> DirectFailureReason.NO_TARGET_SESSION
+            contains("compatible", ignoreCase = true) || contains("support", ignoreCase = true) -> DirectFailureReason.COMMAND_NOT_SUPPORTED
+            contains("refus", ignoreCase = true) || contains("rejet", ignoreCase = true) -> DirectFailureReason.COMMAND_REJECTED
+            else -> DirectFailureReason.COMMAND_ERROR
         }
 
     private fun logObservedOutcome(
@@ -311,11 +460,11 @@ class PlayMediaCoordinator(
         label: String,
         context: ActionExecutionContext,
     ): Attempt {
-        if (intent == null) return Attempt.Failed
+        if (intent == null) return Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
         return when (val result = launcher.launch(intent, label, context)) {
             ActionResult.Completed -> Attempt.Opened
             is ActionResult.UserActionRequired -> Attempt.UserLaunchRequired(result.reason)
-            else -> Attempt.Failed
+            else -> Attempt.Failed(DirectFailureReason.COMMAND_ERROR)
         }
     }
 
@@ -393,14 +542,27 @@ class PlayMediaCoordinator(
     private sealed interface Attempt {
         data object Opened : Attempt
 
-        data object Failed : Attempt
+        data class Failed(
+            val reason: DirectFailureReason,
+        ) : Attempt
 
         data class UserLaunchRequired(
             val reason: String,
         ) : Attempt
     }
 
+    private enum class DirectFailureReason(
+        val message: String,
+    ) {
+        NO_TARGET_SESSION("aucune session compatible"),
+        COMMAND_NOT_SUPPORTED("commande directe non prise en charge"),
+        COMMAND_REJECTED("commande multimédia refusée"),
+        COMMAND_ERROR("erreur de commande directe"),
+        PLAYBACK_NOT_CONFIRMED("lecture non confirmée"),
+    }
+
     private companion object {
+        const val BACKGROUND_ONLY_FAILURE = "La lecture en arrière-plan n’est pas disponible pour ce lecteur dans l’état actuel."
         const val AUTOMATIC_BUDGET_MILLIS = 20_000L
         const val OPERATION_RESPONSE_MILLIS = 4_000L
         const val CHECKPOINT_STATE = "media_execution_v3"

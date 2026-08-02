@@ -1,5 +1,19 @@
 # Journal des modifications
 
+## 0.15.10
+
+### Nouveautés
+
+- PLAY_MEDIA propose désormais les modes **Automatique**, **Arrière-plan uniquement** et **Ouvrir le lecteur**.
+- Le mode choisi apparaît dans le configurateur HUD et dans le résumé de l’action.
+- Branlly informe désormais l’utilisateur lorsqu’un mode Automatique ouvre le lecteur après l’échec d’une commande directe.
+
+### Compatibilité et validation
+
+- Les routines existantes sans mode de lancement restent interprétées en mode Automatique.
+- Des tests automatisés couvrent la sérialisation, les plans de lancement et les reprises PLAY_MEDIA.
+- Cette version n’a pas été validée physiquement sur téléphone avant le test utilisateur.
+
 ## 0.15.9
 
 ### Corrections

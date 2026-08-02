@@ -53,6 +53,7 @@ class PlayMediaHandler(
                 "targetPackage" to action.targetPackage,
                 "hasSearch" to action.searchQuery.isNotBlank(),
                 "hasUri" to !action.mediaUri.isNullOrBlank(),
+                "launchMode" to action.launchMode.name,
                 "resumed" to (context.workflowCheckpoint != null),
             ),
         )
