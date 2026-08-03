@@ -45,6 +45,9 @@ class AndroidMediaOutcomeObserver(
 
     @Volatile private var commandedController: ObservableMediaController? = null
 
+    /** The first explicit-controller snapshot is a post-acquisition baseline, never evidence. */
+    @Volatile private var commandedControllerObservationArmed = false
+
     @Volatile private var inspectSessions: (() -> Unit)? = null
 
     @Volatile private var attachCommandedController: (() -> Unit)? = null
@@ -60,6 +63,7 @@ class AndroidMediaOutcomeObserver(
         operationDispatched = false
         commandedSessionId = null
         commandedController = null
+        commandedControllerObservationArmed = false
         val captured =
             runCatching {
                 manager
@@ -82,6 +86,7 @@ class AndroidMediaOutcomeObserver(
     ) {
         this.commandedSessionId = commandedSessionId
         this.commandedController = commandedController
+        commandedControllerObservationArmed = commandedController == null
         operationDispatched = true
         synchronized(unconfirmedSessions) { unconfirmedSessions.clear() }
         Log.i(TAG, "Operation dispatched session=${commandedSessionId ?: "unscoped"}")
@@ -132,6 +137,10 @@ class AndroidMediaOutcomeObserver(
                 ): MediaObservedOutcome.PlaybackStarted? {
                     val id = snapshot.sessionId
                     if (preDispatchCaptureFailed) return null
+                    // A controller may have been acquired outside getActiveSessions(). Its
+                    // first snapshot can describe pre-existing playback, so never use it as
+                    // confirmation until a later callback/snapshot has advanced the epoch.
+                    if (snapshot.sessionId == commandedSessionId && !commandedControllerObservationArmed) return null
                     val proof =
                         baseline.copy(sessions = preDispatchSessions ?: baseline.sessions).confirmDirectPlayback(
                             observed = snapshot,
@@ -179,6 +188,9 @@ class AndroidMediaOutcomeObserver(
                         .firstNotNullOfOrNull { observed(it, currentSessionIds) }
                         ?.let(::complete)
                         ?.also { return }
+                    // The initial explicit snapshot only establishes a local baseline. Any
+                    // later callback is evaluated as post-dispatch evidence.
+                    commandedControllerObservationArmed = true
                     callbacks.filterKeys { it !in targets }.forEach { (controller, callback) ->
                         runCatching { controller.unregisterCallback(callback) }
                         callbacks.remove(controller)
