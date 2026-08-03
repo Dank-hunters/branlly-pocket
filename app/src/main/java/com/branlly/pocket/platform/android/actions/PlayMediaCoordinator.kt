@@ -491,7 +491,9 @@ class PlayMediaCoordinator(
                             "PLAY_MEDIA_DIRECT_COMMAND_SENT",
                             mapOf("nodeId" to context.nodeId.value, "sessionId" to command.sessionId),
                         )
+                        session.markDispatchPerformed(operation.id)
                         session.recordCommandedSession(operation.id, command.sessionId)
+                        session.markObservingDispatch(operation.id)
                         observer.onOperationDispatched(command.sessionId, command.observableController)
                         Attempt.Opened
                     }

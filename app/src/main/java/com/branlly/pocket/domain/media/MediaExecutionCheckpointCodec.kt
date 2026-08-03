@@ -95,7 +95,9 @@ object MediaExecutionCheckpointCodec {
                                 .put("executionCount", operation.executionCount)
                                 .put("reason", operation.reason)
                                 .put("commandedSessionId", operation.commandedSessionId)
-                                .put("dispatchReserved", operation.dispatchReserved),
+                                .put("dispatchReserved", operation.dispatchReserved)
+                                .put("dispatchFence", operation.dispatchFence.name)
+                                .put("effectKey", operation.effectKey),
                         )
                     }
                 },
@@ -148,6 +150,20 @@ object MediaExecutionCheckpointCodec {
                                 reason = optionalString(item, "reason"),
                                 commandedSessionId = optionalString(item, "commandedSessionId"),
                                 dispatchReserved = item.optBoolean("dispatchReserved", false),
+                                dispatchFence =
+                                    runCatching { MediaDispatchFence.valueOf(item.optString("dispatchFence")) }
+                                        .getOrElse {
+                                            if (item.optBoolean(
+                                                    "dispatchReserved",
+                                                    false,
+                                                )
+                                            ) {
+                                                MediaDispatchFence.RESERVED
+                                            } else {
+                                                MediaDispatchFence.OPEN
+                                            }
+                                        },
+                                effectKey = optionalString(item, "effectKey"),
                             ),
                         )
                     }
@@ -261,6 +277,16 @@ object MediaExecutionCheckpointCodec {
                 operations.any {
                     it.executionCount < 0 || (it.effectApplied && it.executionCount == 0) ||
                         (!it.available && it.status != MediaOperationStatus.SKIPPED) ||
+                        (it.dispatchFence != MediaDispatchFence.OPEN && !it.dispatchReserved) ||
+                        (
+                            it.dispatchFence in setOf(MediaDispatchFence.DISPATCHED, MediaDispatchFence.OBSERVING) &&
+                                it.status !in
+                                setOf(
+                                    MediaOperationStatus.EFFECT_APPLIED,
+                                    MediaOperationStatus.AWAITING_OUTCOME,
+                                    MediaOperationStatus.RUNNING,
+                                )
+                        ) ||
                         (
                             it.status in
                                 setOf(

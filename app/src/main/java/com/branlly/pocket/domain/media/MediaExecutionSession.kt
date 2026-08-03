@@ -36,6 +36,9 @@ enum class MediaOperationStatus {
     SKIPPED,
 }
 
+/** Durable ownership of the one non-transactional direct command in a logical attempt. */
+enum class MediaDispatchFence { OPEN, RESERVED, DISPATCHED, OBSERVING, CONFIRMED, TERMINAL_UNCONFIRMED }
+
 enum class MediaOperationType { DIRECT_URI, MEDIA_SESSION, PROVIDER_SEARCH, PROVIDER_AUTOMATION, MANUAL_ASSISTANCE }
 
 enum class MediaBaselinePlaybackState { NONE, STOPPED, PAUSED, PLAYING, UNKNOWN }
@@ -147,6 +150,10 @@ data class MediaOperation(
     val commandedSessionId: String? = null,
     /** Persisted before invoking a non-transactional external media command. */
     val dispatchReserved: Boolean = false,
+    /** Checkpoint-safe phase of the attempt-wide command fence. */
+    val dispatchFence: MediaDispatchFence = if (dispatchReserved) MediaDispatchFence.RESERVED else MediaDispatchFence.OPEN,
+    /** Opaque deterministic key for the logical request, never derived from a controller. */
+    val effectKey: String? = null,
 )
 
 data class MediaExecutionPlan(
@@ -300,6 +307,17 @@ class MediaExecutionSession(
                             it.copy(
                                 status = status,
                                 effectApplied = it.effectApplied || status in EFFECT_APPLIED_STATUSES,
+                                dispatchFence =
+                                    when {
+                                        status == MediaOperationStatus.AWAITING_OUTCOME && it.dispatchFence == MediaDispatchFence.DISPATCHED -> MediaDispatchFence.OBSERVING
+
+                                        status == MediaOperationStatus.COMPLETED && it.dispatchFence != MediaDispatchFence.OPEN -> MediaDispatchFence.CONFIRMED
+
+                                        status in setOf(MediaOperationStatus.FAILED, MediaOperationStatus.SKIPPED) &&
+                                            it.dispatchFence != MediaDispatchFence.OPEN -> MediaDispatchFence.TERMINAL_UNCONFIRMED
+
+                                        else -> it.dispatchFence
+                                    },
                             )
                         } else {
                             it
@@ -330,7 +348,15 @@ class MediaExecutionSession(
                 version = current.version + 1,
                 operations =
                     current.operations.map {
-                        if (it.id == operationId) it.copy(dispatchReserved = true) else it
+                        if (it.id == operationId) {
+                            it.copy(
+                                dispatchReserved = true,
+                                dispatchFence = MediaDispatchFence.RESERVED,
+                                effectKey = "$executionId:${nodeId.value}:$targetPackage:play_from_search:${searchQuery.hashCode()}",
+                            )
+                        } else {
+                            it
+                        }
                     },
             )
         }
@@ -346,7 +372,52 @@ class MediaExecutionSession(
                 version = current.version + 1,
                 operations =
                     current.operations.map {
-                        if (it.id == operationId) it.copy(status = MediaOperationStatus.AWAITING_OUTCOME, effectApplied = true) else it
+                        if (it.id == operationId) {
+                            it.copy(
+                                status = MediaOperationStatus.AWAITING_OUTCOME,
+                                effectApplied = true,
+                                dispatchFence = MediaDispatchFence.OBSERVING,
+                            )
+                        } else {
+                            it
+                        }
+                    },
+            )
+        }
+
+    fun markDispatchPerformed(operationId: String): Boolean =
+        update { current ->
+            if (current.terminal != null) return@update null
+            current.copy(
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == operationId &&
+                            it.dispatchFence == MediaDispatchFence.RESERVED
+                        ) {
+                            it.copy(dispatchFence = MediaDispatchFence.DISPATCHED)
+                        } else {
+                            it
+                        }
+                    },
+            )
+        }
+
+    fun markObservingDispatch(operationId: String): Boolean =
+        update { current ->
+            if (current.terminal != null) return@update null
+            current.copy(
+                state = MediaExecutionState.AWAIT_OUTCOME,
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == operationId &&
+                            it.dispatchFence == MediaDispatchFence.DISPATCHED
+                        ) {
+                            it.copy(dispatchFence = MediaDispatchFence.OBSERVING)
+                        } else {
+                            it
+                        }
                     },
             )
         }

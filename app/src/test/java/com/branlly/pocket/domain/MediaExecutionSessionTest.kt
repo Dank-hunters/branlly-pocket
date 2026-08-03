@@ -1,5 +1,6 @@
 package com.branlly.pocket.domain
 
+import com.branlly.pocket.domain.media.MediaDispatchFence
 import com.branlly.pocket.domain.media.MediaExecutionCheckpoint
 import com.branlly.pocket.domain.media.MediaExecutionPlan
 import com.branlly.pocket.domain.media.MediaExecutionResult
@@ -72,10 +73,12 @@ class MediaExecutionSessionTest {
 
         assertTrue(session.startOperation("session"))
         assertTrue(session.reserveDispatch("session"))
+        assertEquals(MediaDispatchFence.RESERVED, session.currentOperation()?.dispatchFence)
         assertFalse(session.reserveDispatch("session"))
         val restored = restore(session.checkpoint())
 
         assertTrue(restored.resumeReservedDispatch("session"))
+        assertEquals(MediaDispatchFence.OBSERVING, restored.currentOperation()?.dispatchFence)
         assertFalse(restored.startOperation("session"))
         assertFalse(restored.reserveDispatch("session"))
         assertEquals(MediaOperationStatus.AWAITING_OUTCOME, restored.currentOperation()?.status)
