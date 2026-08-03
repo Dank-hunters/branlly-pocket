@@ -316,7 +316,16 @@ class MediaExecutionSession(
         update { current ->
             if (current.terminal != null) return@update null
             val operation = current.operations.singleOrNull { it.id == operationId } ?: return@update null
-            if (operation.status != MediaOperationStatus.RUNNING || operation.dispatchReserved) return@update null
+            // A reservation belongs to the whole logical PLAY_MEDIA attempt, not to a
+            // controller. Once persisted, another discovered session must never authorize
+            // another automatic search command in this checkpoint.
+            if (
+                operation.status != MediaOperationStatus.RUNNING ||
+                operation.dispatchReserved ||
+                current.operations.any { it.id != operationId && it.dispatchReserved }
+            ) {
+                return@update null
+            }
             current.copy(
                 version = current.version + 1,
                 operations =

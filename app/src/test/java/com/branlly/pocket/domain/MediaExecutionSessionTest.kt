@@ -82,6 +82,19 @@ class MediaExecutionSessionTest {
     }
 
     @Test
+    fun `dispatch reservation is global to the logical media attempt`() {
+        val first = MediaOperation("first", MediaOperationType.MEDIA_SESSION, true)
+        val second = MediaOperation("second", MediaOperationType.MEDIA_SESSION, true)
+        val session = restore(checkpoint(state = MediaExecutionState.EXECUTE_OPERATION, operation = first, extra = second))
+
+        assertTrue(session.startOperation("first"))
+        assertTrue(session.reserveDispatch("first"))
+        assertTrue(session.finishOperation("first", MediaOperationStatus.FAILED))
+        assertTrue(session.startOperation("second"))
+        assertFalse(session.reserveDispatch("second"))
+    }
+
+    @Test
     fun `continuation creation and consumption are exactly once`() {
         val operation =
             MediaOperation("provider", MediaOperationType.PROVIDER_SEARCH, true, MediaOperationStatus.RUNNING, executionCount = 1)

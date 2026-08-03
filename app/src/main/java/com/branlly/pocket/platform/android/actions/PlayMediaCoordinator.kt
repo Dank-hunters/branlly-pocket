@@ -379,6 +379,21 @@ class PlayMediaCoordinator(
             return false
         }
         if (operations.any { it.executionCount < 0 || (it.dispatchReserved && it.executionCount == 0) }) return false
+        if (operations.count { it.dispatchReserved } > 1) return false
+        val active =
+            operations.filter {
+                it.status in
+                    setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
+            }
+        if (checkpoint.operationId != active.singleOrNull()?.id) return false
+        if (operations.any {
+                it.status in setOf(MediaOperationStatus.COMPLETED, MediaOperationStatus.FAILED, MediaOperationStatus.SKIPPED) &&
+                    it.dispatchReserved &&
+                    it.effectApplied.not()
+            }
+        ) {
+            return false
+        }
         val types = operations.map(MediaOperation::type)
         return when (action.launchMode) {
             MediaLaunchMode.AUTOMATIC -> {
