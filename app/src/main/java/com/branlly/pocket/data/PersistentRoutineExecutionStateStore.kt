@@ -90,6 +90,32 @@ class PersistentRoutineExecutionStateStore(
             if (read()?.executionId == executionId) clear()
         }
 
+    fun saveInFlight(
+        executionId: String,
+        nodeId: NodeId,
+        checkpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint,
+    ): Boolean =
+        synchronized(lock) {
+            val current = read() ?: return@synchronized false
+            if (current.executionId != executionId || current.status != ExecutionStatus.RUNNING ||
+                checkpoint.executionId != executionId || checkpoint.actionId != nodeId
+            ) {
+                return@synchronized false
+            }
+            write(current.copy(inFlightCheckpoint = checkpoint))
+            true
+        }
+
+    fun clearInFlight(
+        executionId: String,
+        nodeId: NodeId,
+    ) = synchronized(lock) {
+        val current = read() ?: return@synchronized
+        if (current.executionId == executionId && current.inFlightCheckpoint?.actionId == nodeId) {
+            write(current.copy(inFlightCheckpoint = null))
+        }
+    }
+
     override fun active(nowMillis: Long): ActiveExecution? =
         synchronized(lock) {
             val current = read() ?: return@synchronized null
@@ -108,6 +134,7 @@ class PersistentRoutineExecutionStateStore(
                 .put("routineId", active.routineId.value)
                 .put("status", active.status.name)
                 .put("expiresAt", active.expiresAtMillis)
+        active.inFlightCheckpoint?.let { value.put("inFlightCheckpoint", encodeCheckpoint(it)) }
         active.continuation?.let { continuation ->
             value.put(
                 "continuation",
@@ -164,6 +191,7 @@ class PersistentRoutineExecutionStateStore(
                 status = ExecutionStatus.valueOf(value.getString("status")),
                 expiresAtMillis = value.getLong("expiresAt"),
                 continuation = continuation,
+                inFlightCheckpoint = value.optJSONObject("inFlightCheckpoint")?.let(::decodeCheckpoint),
             )
         }.getOrNull()
 

@@ -161,6 +161,7 @@ class PlayMediaCoordinator(
                 outcome.cancel()
                 observer.close()
                 guidance.clear()
+                if (session.terminalResult() != null) context.checkpointPersistence.clear()
             }
         }
 
@@ -552,7 +553,17 @@ class PlayMediaCoordinator(
                         observer.prepareCommandedController(prepared.command.observableController)
                         if (!session.reserveDispatch(operation.id)) {
                             Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
+                        } else if (!context.checkpointPersistence.save(session.checkpoint().toWorkflowCheckpoint())) {
+                            context.logger.log(
+                                "PLAY_MEDIA_DISPATCH_BLOCKED_CHECKPOINT_UNSAVED",
+                                mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id),
+                            )
+                            Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
                         } else {
+                            context.logger.log(
+                                "PLAY_MEDIA_DISPATCH_RESERVED_PERSISTED",
+                                mapOf("nodeId" to context.nodeId.value, "operationId" to operation.id),
+                            )
                             val command = prepared.command.dispatch()
                             when (command) {
                                 is MediaSessionCommandResult.Sent -> {
@@ -564,6 +575,7 @@ class PlayMediaCoordinator(
                                     session.recordCommandedSession(operation.id, command.sessionId)
                                     observer.onOperationDispatched(command.sessionId, command.observableController)
                                     session.markObservingDispatch(operation.id)
+                                    context.checkpointPersistence.save(session.checkpoint().toWorkflowCheckpoint())
                                     Attempt.Opened
                                 }
 

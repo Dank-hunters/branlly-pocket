@@ -44,6 +44,18 @@ interface ActionValidationContext {
     fun isPackageLaunchable(packageName: String): Boolean
 }
 
+interface ActionCheckpointPersistence {
+    suspend fun save(checkpoint: ActionWorkflowCheckpoint): Boolean
+
+    suspend fun clear()
+
+    data object None : ActionCheckpointPersistence {
+        override suspend fun save(checkpoint: ActionWorkflowCheckpoint) = true
+
+        override suspend fun clear() = Unit
+    }
+}
+
 fun interface ExecutionLogger {
     fun log(
         event: String,
@@ -61,6 +73,7 @@ data class ActionExecutionContext(
     val workflowCheckpoint: ActionWorkflowCheckpoint? = null,
     /** Increments only for an in-process ErrorStrategy.Retry attempt. */
     val retryAttempt: Int = 0,
+    val checkpointPersistence: ActionCheckpointPersistence = ActionCheckpointPersistence.None,
 )
 
 interface ActionHandler<A : ShortcutAction> {

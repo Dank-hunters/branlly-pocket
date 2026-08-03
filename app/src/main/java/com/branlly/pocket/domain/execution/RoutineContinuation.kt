@@ -4,6 +4,7 @@ import com.branlly.pocket.domain.model.ActionKind
 import com.branlly.pocket.domain.model.NodeId
 import com.branlly.pocket.domain.model.ShortcutDefinition
 import com.branlly.pocket.domain.model.ShortcutId
+import com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint
 
 enum class ExecutionStatus {
     RUNNING,
@@ -34,6 +35,8 @@ data class ActiveExecution(
     val status: ExecutionStatus,
     val expiresAtMillis: Long,
     val continuation: RoutineContinuation? = null,
+    /** Durable checkpoint for an in-flight external action; cleared on terminal completion. */
+    val inFlightCheckpoint: ActionWorkflowCheckpoint? = null,
 )
 
 data class ContinuationIdentity(

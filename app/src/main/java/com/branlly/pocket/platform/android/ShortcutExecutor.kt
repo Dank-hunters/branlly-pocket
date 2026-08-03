@@ -1,6 +1,8 @@
 package com.branlly.pocket.platform.android
 
 import android.content.Context
+import com.branlly.pocket.data.PersistentRoutineExecutionStateStore
+import com.branlly.pocket.domain.execution.ActionCheckpointPersistence
 import com.branlly.pocket.domain.execution.ActionExecutionContext
 import com.branlly.pocket.domain.execution.ActionRegistry
 import com.branlly.pocket.domain.execution.ActionResult
@@ -21,11 +23,29 @@ import java.util.UUID
 class ShortcutExecutor(
     private val registry: ActionRegistry,
     private val logger: ExecutionLogger = ExecutionLogger { _, _ -> },
+    private val checkpointPersistenceFactory: (
+        String,
+        NodeId,
+    ) -> ActionCheckpointPersistence = { _, _ -> ActionCheckpointPersistence.None },
 ) {
     constructor(
         context: Context,
         registry: ActionRegistry = AndroidActionRegistry.create(context.applicationContext),
-    ) : this(registry, AndroidExecutionLogger(context.packageName))
+    ) : this(
+        registry,
+        AndroidExecutionLogger(context.packageName),
+        { executionId, nodeId ->
+            val store = PersistentRoutineExecutionStateStore(context.applicationContext)
+            object : ActionCheckpointPersistence {
+                override suspend fun save(checkpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint): Boolean =
+                    store.saveInFlight(executionId, nodeId, checkpoint)
+
+                override suspend fun clear() {
+                    store.clearInFlight(executionId, nodeId)
+                }
+            }
+        },
+    )
 
     suspend fun execute(
         shortcut: ShortcutDefinition,
@@ -106,6 +126,7 @@ class ShortcutExecutor(
                     userInitiated = userInitiated,
                     workflowCheckpoint = workflowCheckpoint,
                     retryAttempt = retryAttempt,
+                    checkpointPersistence = checkpointPersistenceFactory(executionId, node.id),
                 )
             return if (node.timeoutMillis == null) {
                 registry.execute(node.action, context)
