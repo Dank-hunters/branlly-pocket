@@ -80,6 +80,22 @@ class AndroidMediaOutcomeObserver(
         }
     }
 
+    override fun prepareCommandedController(controller: ObservableMediaController?) {
+        commandedController = controller
+        commandedControllerObservationArmed = false
+        controller?.snapshot()?.takeIf { it.packageName == targetPackage }?.let { snapshot ->
+            val baselineSession =
+                MediaBaselineSession(
+                    sessionId = snapshot.sessionId,
+                    playbackState = snapshot.playbackState,
+                    content = snapshot.content,
+                )
+            preDispatchSessions =
+                (preDispatchSessions.orEmpty().filterNot { it.sessionId == snapshot.sessionId } + baselineSession)
+        }
+        handler.post { attachCommandedController?.invoke() }
+    }
+
     override fun onOperationDispatched(
         commandedSessionId: String?,
         commandedController: ObservableMediaController?,

@@ -102,7 +102,56 @@ sealed interface MediaSessionCommandResult {
 }
 
 fun interface MediaSessionCommandGateway {
+    /** Legacy one-shot entry point kept for existing fakes and callers. */
     fun request(action: ShortcutAction.PlayMedia): MediaSessionCommandResult
+
+    /**
+     * Selects an exact controller without touching the target app. Android gateways override
+     * this so the coordinator can snapshot and subscribe before reserving the external effect.
+     */
+    fun prepare(action: ShortcutAction.PlayMedia): MediaSessionPreparation =
+        when (val result = request(action)) {
+            is MediaSessionCommandResult.Sent -> {
+                // Compatibility for existing in-memory gateways. The Android implementation
+                // overrides this path and prepares without dispatching.
+                MediaSessionPreparation.Ready(
+                    PreparedMediaSessionCommand(result.command, result.sessionId, result.observableController) { result },
+                )
+            }
+
+            is MediaSessionCommandResult.NotSupported -> {
+                MediaSessionPreparation.NotSupported(result.reason, result.directFailureReason)
+            }
+
+            is MediaSessionCommandResult.Failed -> {
+                MediaSessionPreparation.Failed(result.reason, result.directFailureReason)
+            }
+        }
+}
+
+sealed interface MediaSessionPreparation {
+    data class Ready(
+        val command: PreparedMediaSessionCommand,
+    ) : MediaSessionPreparation
+
+    data class NotSupported(
+        val reason: String,
+        val directFailureReason: DirectMediaFailureReason? = null,
+    ) : MediaSessionPreparation
+
+    data class Failed(
+        val reason: String,
+        val directFailureReason: DirectMediaFailureReason? = null,
+    ) : MediaSessionPreparation
+}
+
+class PreparedMediaSessionCommand internal constructor(
+    val command: String,
+    val sessionId: String?,
+    val observableController: ObservableMediaController?,
+    private val dispatchBlock: () -> MediaSessionCommandResult,
+) {
+    fun dispatch(): MediaSessionCommandResult = dispatchBlock()
 }
 
 internal enum class DirectMediaSessionCommand {
@@ -200,12 +249,19 @@ class AndroidMediaSessionCommandGateway(
 ) : MediaSessionCommandGateway {
     private val appContext = context.applicationContext
 
-    override fun request(action: ShortcutAction.PlayMedia): MediaSessionCommandResult {
+    override fun request(action: ShortcutAction.PlayMedia): MediaSessionCommandResult =
+        when (val prepared = prepare(action)) {
+            is MediaSessionPreparation.Ready -> prepared.command.dispatch()
+            is MediaSessionPreparation.NotSupported -> MediaSessionCommandResult.NotSupported(prepared.reason, prepared.directFailureReason)
+            is MediaSessionPreparation.Failed -> MediaSessionCommandResult.Failed(prepared.reason, prepared.directFailureReason)
+        }
+
+    override fun prepare(action: ShortcutAction.PlayMedia): MediaSessionPreparation {
         if (appContext.packageName !in NotificationManagerCompat.getEnabledListenerPackages(appContext) ||
             !BranllyMediaListener.isConnected()
         ) {
             Log.w(TAG, "MediaSession indisponible: listener non autorisé ou déconnecté")
-            return MediaSessionCommandResult.Failed(
+            return MediaSessionPreparation.Failed(
                 "Le service MediaSession n’est pas disponible.",
                 DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
             )
@@ -217,7 +273,7 @@ class AndroidMediaSessionCommandGateway(
                     .getActiveSessions(ComponentName(appContext, BranllyMediaListener::class.java))
             }.getOrElse {
                 Log.w(TAG, "Accès MediaSession refusé", it)
-                return MediaSessionCommandResult.Failed(
+                return MediaSessionPreparation.Failed(
                     it.message ?: "Accès MediaSession refusé.",
                     DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
                 )
@@ -225,7 +281,7 @@ class AndroidMediaSessionCommandGateway(
         val exactControllers = controllers.filter { it.packageName == action.targetPackage }
         if (exactControllers.isEmpty()) {
             Log.i(TAG, "Aucune session du package cible: ${action.targetPackage}")
-            return MediaSessionCommandResult.NotSupported("Aucune session du package cible.", DirectMediaFailureReason.NO_TARGET_SESSION)
+            return MediaSessionPreparation.NotSupported("Aucune session du package cible.", DirectMediaFailureReason.NO_TARGET_SESSION)
         }
         exactControllers.forEach { controller ->
             val actions = controller.playbackState?.actions ?: 0L
@@ -253,7 +309,7 @@ class AndroidMediaSessionCommandGateway(
                 searchQuery = action.searchQuery,
             ) ?: run {
                 Log.i(TAG, "Session cible sans commande de recherche compatible")
-                return MediaSessionCommandResult.NotSupported(
+                return MediaSessionPreparation.NotSupported(
                     "La session n’annonce aucune commande compatible.",
                     DirectMediaFailureReason.COMMAND_NOT_SUPPORTED,
                 )
@@ -269,19 +325,27 @@ class AndroidMediaSessionCommandGateway(
 
                 override fun play() = controls.play()
             }
-        return runCatching {
-            val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, transport)
-            Log.i(TAG, "$sent envoyé package=${action.targetPackage}")
-            val controller = controllers[selection.index]
-            MediaSessionCommandResult.Sent(
-                sent,
-                controller.sessionToken.hashCode().toString(),
-                AndroidObservableMediaController(controller),
-            )
-        }.getOrElse {
-            Log.w(TAG, "Commande MediaSession refusée", it)
-            MediaSessionCommandResult.Failed(it.message ?: "Commande MediaSession refusée.", DirectMediaFailureReason.COMMAND_EXCEPTION)
-        }
+        val controller = controllers[selection.index]
+        val observable = AndroidObservableMediaController(controller)
+        return MediaSessionPreparation.Ready(
+            PreparedMediaSessionCommand(
+                command = selection.command.name,
+                sessionId = observable.sessionId,
+                observableController = observable,
+            ) {
+                runCatching {
+                    val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, transport)
+                    Log.i(TAG, "$sent envoyé package=${action.targetPackage}")
+                    MediaSessionCommandResult.Sent(sent, observable.sessionId, observable)
+                }.getOrElse {
+                    Log.w(TAG, "Commande MediaSession refusée", it)
+                    MediaSessionCommandResult.Failed(
+                        it.message ?: "Commande MediaSession refusée.",
+                        DirectMediaFailureReason.COMMAND_EXCEPTION,
+                    )
+                }
+            },
+        )
     }
 
     private companion object {

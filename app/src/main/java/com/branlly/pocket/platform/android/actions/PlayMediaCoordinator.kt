@@ -234,9 +234,6 @@ class PlayMediaCoordinator(
                         },
                     )
             if (!session.startOperation(operation.id)) return finish(session, MediaExecutionResult.Failed("Opération média déjà exécutée."))
-            if (operation.type == MediaOperationType.MEDIA_SESSION && !session.reserveDispatch(operation.id)) {
-                return finish(session, MediaExecutionResult.Failed("La commande média a déjà été réservée pour cette tentative."))
-            }
             context.logger.log(
                 "PLAY_MEDIA_OPERATION_STARTED",
                 mapOf(
@@ -547,26 +544,46 @@ class PlayMediaCoordinator(
                     "PLAY_MEDIA_DIRECT_ATTEMPT",
                     mapOf("nodeId" to context.nodeId.value, "launchMode" to action.launchMode.name),
                 )
-                observer.capturePreDispatchState()
-                when (val command = commands.request(action)) {
-                    is MediaSessionCommandResult.Sent -> {
-                        context.logger.log(
-                            "PLAY_MEDIA_DIRECT_COMMAND_SENT",
-                            mapOf("nodeId" to context.nodeId.value, "sessionId" to command.sessionId),
-                        )
-                        session.markDispatchPerformed(operation.id)
-                        session.recordCommandedSession(operation.id, command.sessionId)
-                        session.markObservingDispatch(operation.id)
-                        observer.onOperationDispatched(command.sessionId, command.observableController)
-                        Attempt.Opened
+                when (val prepared = commands.prepare(action)) {
+                    is MediaSessionPreparation.Ready -> {
+                        // The exact handle is snapshotted and subscribed before the persisted
+                        // reservation. The observer only arms post-dispatch evidence later.
+                        observer.capturePreDispatchState()
+                        observer.prepareCommandedController(prepared.command.observableController)
+                        if (!session.reserveDispatch(operation.id)) {
+                            Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
+                        } else {
+                            val command = prepared.command.dispatch()
+                            when (command) {
+                                is MediaSessionCommandResult.Sent -> {
+                                    context.logger.log(
+                                        "PLAY_MEDIA_DIRECT_COMMAND_SENT",
+                                        mapOf("nodeId" to context.nodeId.value, "sessionId" to command.sessionId),
+                                    )
+                                    session.markDispatchPerformed(operation.id)
+                                    session.recordCommandedSession(operation.id, command.sessionId)
+                                    observer.onOperationDispatched(command.sessionId, command.observableController)
+                                    session.markObservingDispatch(operation.id)
+                                    Attempt.Opened
+                                }
+
+                                is MediaSessionCommandResult.NotSupported -> {
+                                    Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
+                                }
+
+                                is MediaSessionCommandResult.Failed -> {
+                                    Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
+                                }
+                            }
+                        }
                     }
 
-                    is MediaSessionCommandResult.NotSupported -> {
-                        Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
+                    is MediaSessionPreparation.NotSupported -> {
+                        Attempt.Failed(prepared.directFailureReason ?: prepared.reason.toDirectMediaFailureReason())
                     }
 
-                    is MediaSessionCommandResult.Failed -> {
-                        Attempt.Failed(command.directFailureReason ?: command.reason.toDirectMediaFailureReason())
+                    is MediaSessionPreparation.Failed -> {
+                        Attempt.Failed(prepared.directFailureReason ?: prepared.reason.toDirectMediaFailureReason())
                     }
                 }
             }

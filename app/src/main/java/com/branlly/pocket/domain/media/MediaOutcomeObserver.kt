@@ -9,6 +9,9 @@ interface MediaOutcomeObserver : AutoCloseable {
     /** Captures the target state immediately before an operation is sent. */
     fun capturePreDispatchState() = Unit
 
+    /** Attaches the exact selected controller before reserving any external command. */
+    fun prepareCommandedController(controller: ObservableMediaController?) = Unit
+
     /** Records an operation actually dispatched; null means no session-specific correlation is available. */
     fun onOperationDispatched(
         commandedSessionId: String?,
