@@ -18,6 +18,7 @@ object MediaExecutionCheckpointCodec {
             .put("globalDeadlineMillis", checkpoint.globalDeadlineMillis)
             .put("state", checkpoint.state.name)
             .put("stateVersion", checkpoint.stateVersion)
+            .put("attemptGeneration", checkpoint.attemptGeneration)
             .put("operationId", checkpoint.operationId)
             .put("continuationCreated", checkpoint.continuationCreated)
             .put("continuationConsumed", checkpoint.continuationConsumed)
@@ -266,7 +267,8 @@ object MediaExecutionCheckpointCodec {
                 return null
             }
             val stateVersion = value.getInt("stateVersion")
-            if (stateVersion < 0) return null
+            val attemptGeneration = value.optInt("attemptGeneration", 0)
+            if (stateVersion < 0 || attemptGeneration < 0) return null
             val operationId = optionalString(value, "operationId")
             val continuationCreated = value.optBoolean("continuationCreated", false)
             val continuationConsumed = value.getBoolean("continuationConsumed")
@@ -315,6 +317,7 @@ object MediaExecutionCheckpointCodec {
                 globalDeadlineMillis = globalDeadline,
                 state = state,
                 stateVersion = stateVersion,
+                attemptGeneration = attemptGeneration,
                 operationId = operationId,
                 continuationCreated = continuationCreated,
                 continuationConsumed = continuationConsumed,

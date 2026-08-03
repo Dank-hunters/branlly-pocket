@@ -45,7 +45,10 @@ interface ActionValidationContext {
 }
 
 fun interface ExecutionLogger {
-    fun log(event: String, fields: Map<String, Any?>)
+    fun log(
+        event: String,
+        fields: Map<String, Any?>,
+    )
 }
 
 data class ActionExecutionContext(
@@ -56,6 +59,8 @@ data class ActionExecutionContext(
     /** True only for the node explicitly resumed by a user notification tap. */
     val userInitiated: Boolean = false,
     val workflowCheckpoint: ActionWorkflowCheckpoint? = null,
+    /** Increments only for an in-process ErrorStrategy.Retry attempt. */
+    val retryAttempt: Int = 0,
 )
 
 interface ActionHandler<A : ShortcutAction> {
@@ -129,8 +134,9 @@ class ActionRegistry(
         action: ShortcutAction,
         context: ActionValidationContext,
     ): List<ActionValidationError> {
-        val registration = byKind[action.kind]
-            ?: return listOf(ActionValidationError("missing_handler", "Cette action n’est pas prise en charge."))
+        val registration =
+            byKind[action.kind]
+                ?: return listOf(ActionValidationError("missing_handler", "Cette action n’est pas prise en charge."))
         if (!registration.actionClass.isInstance(action)) {
             return listOf(ActionValidationError("invalid_action_type", "Le type de cette action est incohérent."))
         }
@@ -141,8 +147,9 @@ class ActionRegistry(
         action: ShortcutAction,
         context: ActionExecutionContext,
     ): ActionResult {
-        val registration = byKind[action.kind]
-            ?: return ActionResult.Failed("Aucun handler n’est enregistré pour ${action.kind}.")
+        val registration =
+            byKind[action.kind]
+                ?: return ActionResult.Failed("Aucun handler n’est enregistré pour ${action.kind}.")
         if (!registration.actionClass.isInstance(action)) {
             return ActionResult.Failed("Le modèle de l’action ${action.kind} est incohérent.")
         }
@@ -160,14 +167,12 @@ class ActionRegistry(
         registration: RegisteredAction<out ShortcutAction>,
         action: ShortcutAction,
         context: ActionValidationContext,
-    ): List<ActionValidationError> =
-        (registration as RegisteredAction<ShortcutAction>).handler.validate(action, context)
+    ): List<ActionValidationError> = (registration as RegisteredAction<ShortcutAction>).handler.validate(action, context)
 
     @Suppress("UNCHECKED_CAST")
     private suspend fun executeTyped(
         registration: RegisteredAction<out ShortcutAction>,
         action: ShortcutAction,
         context: ActionExecutionContext,
-    ): ActionResult =
-        (registration as RegisteredAction<ShortcutAction>).handler.execute(action, context)
+    ): ActionResult = (registration as RegisteredAction<ShortcutAction>).handler.execute(action, context)
 }

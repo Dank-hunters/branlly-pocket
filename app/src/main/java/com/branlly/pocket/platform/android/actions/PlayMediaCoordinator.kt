@@ -3,6 +3,7 @@ package com.branlly.pocket.platform.android.actions
 import com.branlly.pocket.domain.execution.ActionExecutionContext
 import com.branlly.pocket.domain.execution.ActionResult
 import com.branlly.pocket.domain.media.MediaConfirmationLevel
+import com.branlly.pocket.domain.media.MediaDispatchFence
 import com.branlly.pocket.domain.media.MediaExecutionCheckpoint
 import com.branlly.pocket.domain.media.MediaExecutionCheckpointCodec
 import com.branlly.pocket.domain.media.MediaExecutionPlan
@@ -76,6 +77,14 @@ class PlayMediaCoordinator(
             if (workflowCheckpoint != null && restoredCheckpoint == null) {
                 return@coroutineScope ActionResult.Failed("Le checkpoint PLAY_MEDIA V3 est invalide.")
             }
+            // Validate a restored plan before creating an observer or touching Android state.
+            if (restoredCheckpoint != null && !isRestoredPlanValid(restoredCheckpoint, action, context)) {
+                context.logger.log(
+                    "PLAY_MEDIA_RESTORED_PLAN_REJECTED",
+                    mapOf("executionId" to context.executionId, "nodeId" to context.nodeId.value),
+                )
+                return@coroutineScope ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré.")
+            }
             val session: MediaExecutionSession
             val observer: MediaOutcomeObserver
             if (restoredCheckpoint == null) {
@@ -93,6 +102,7 @@ class PlayMediaCoordinator(
                         selectionPolicy = action.selectionPolicy,
                         baseline = observer.baseline,
                         plan = buildPlan(action),
+                        attemptGeneration = context.retryAttempt,
                         automaticDeadlineMillis = minOf(deadline, now + AUTOMATIC_BUDGET_MILLIS),
                         globalDeadlineMillis = deadline,
                         startedAtMillis = now,
@@ -108,10 +118,6 @@ class PlayMediaCoordinator(
                         action.selectionPolicy,
                     )
                 observer = observerFactory(action.targetPackage, restoredCheckpoint.baseline)
-            }
-            if (!isRestoredPlanValid(session.checkpoint(), action)) {
-                observer.close()
-                return@coroutineScope ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré.")
             }
             if (session.globalDeadlineMillis <= nowMillis()) {
                 observer.close()
@@ -363,67 +369,124 @@ class PlayMediaCoordinator(
         return if (remaining == 0L) outcome.getCompletedOrNull() else withTimeoutOrNull(remaining) { outcome.await() }
     }
 
-    /** Rejects malformed/restored plans before they can produce an external effect. */
+    /**
+     * Validates the complete persisted checkpoint before any Android object is acquired.
+     * V0.15.11 plans are enumerated below; arbitrary prefixes/subsequences are never accepted.
+     */
     private fun isRestoredPlanValid(
         checkpoint: MediaExecutionCheckpoint,
         action: ShortcutAction.PlayMedia,
+        context: ActionExecutionContext,
     ): Boolean {
+        if (
+            checkpoint.executionId != context.executionId ||
+            checkpoint.routineId != context.routineId ||
+            checkpoint.nodeId != context.nodeId ||
+            checkpoint.attemptGeneration < 0 ||
+            checkpoint.stateVersion < 0
+        ) {
+            return false
+        }
+        // A resumed checkpoint is not a retry: its persisted generation must remain authoritative.
+        if (context.retryAttempt != 0 && checkpoint.attemptGeneration != context.retryAttempt) return false
+
         val operations = checkpoint.plan.operations
-        if (operations.isEmpty() || operations.map(MediaOperation::id).distinct().size != operations.size) return false
-        if (operations.count {
-                it.status in
-                    setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
-            } >
-            1
-        ) {
-            return false
-        }
-        if (operations.any { it.executionCount < 0 || (it.dispatchReserved && it.executionCount == 0) }) return false
-        if (operations.count { it.dispatchReserved } > 1) return false
-        val active =
-            operations.filter {
-                it.status in
-                    setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
-            }
-        if (checkpoint.operationId != active.singleOrNull()?.id) return false
+        val canonical = buildPlan(action).operations
+        val legacy = legacyPlan(action)
+        if (!samePlanShape(operations, canonical) && !samePlanShape(operations, legacy)) return false
+        if (operations.map(MediaOperation::id).distinct().size != operations.size) return false
+        val active = operations.filter { it.status in activeOperationStatuses }
+        if (active.size > 1 || checkpoint.operationId != active.singleOrNull()?.id) return false
         if (operations.any {
-                it.status in setOf(MediaOperationStatus.COMPLETED, MediaOperationStatus.FAILED, MediaOperationStatus.SKIPPED) &&
-                    it.dispatchReserved &&
-                    it.effectApplied.not()
+                it.executionCount < 0 || (it.executionCount == 0 && it.status != MediaOperationStatus.NOT_STARTED)
             }
         ) {
             return false
         }
-        val types = operations.map(MediaOperation::type)
-        return when (action.launchMode) {
+        if (operations
+                .dropWhile {
+                    it.status !in activeOperationStatuses
+                }.drop(1)
+                .any { it.status != MediaOperationStatus.NOT_STARTED }
+        ) {
+            return false
+        }
+        val owners = operations.filter { it.dispatchReserved }
+        if (owners.size > 1) return false
+        val owner = owners.singleOrNull()
+        if (owner != null) {
+            if (owner.type != MediaOperationType.MEDIA_SESSION || owner.status !in activeOperationStatuses ||
+                owner.executionCount != 1
+            ) {
+                return false
+            }
+            if (owner.dispatchFence == MediaDispatchFence.OPEN || owner.effectKey.isNullOrBlank()) return false
+            if (owner.effectKey != expectedEffectKey(checkpoint, action, owner.id)) return false
+            if (owner.commandedSessionId != null && owner.dispatchFence == MediaDispatchFence.RESERVED) return false
+        }
+        if (operations.any {
+                !it.dispatchReserved &&
+                    (it.dispatchFence != MediaDispatchFence.OPEN || it.effectKey != null || it.commandedSessionId != null)
+            }
+        ) {
+            return false
+        }
+        if (checkpoint.state in setOf(MediaExecutionState.AWAIT_OUTCOME, MediaExecutionState.AWAIT_MANUAL_PLAY) &&
+            checkpoint.baseline.capturedAtMillis < 0
+        ) {
+            return false
+        }
+        return true
+    }
+
+    private val activeOperationStatuses =
+        setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
+
+    private fun samePlanShape(
+        actual: List<MediaOperation>,
+        expected: List<MediaOperation>,
+    ): Boolean =
+        actual.size == expected.size &&
+            actual.zip(expected).all { (saved, canonical) ->
+                saved.id == canonical.id && saved.type == canonical.type && saved.automatic == canonical.automatic &&
+                    saved.available == canonical.available
+            }
+
+    /** Exact plan emitted by v0.15.11 before URI direct content was checkpointed. */
+    private fun legacyPlan(action: ShortcutAction.PlayMedia): List<MediaOperation> =
+        when (action.launchMode) {
             MediaLaunchMode.AUTOMATIC -> {
-                val expected = buildPlan(action).operations.map(MediaOperation::type)
-                types.isOrderedSubsequenceOf(expected)
+                buildList {
+                    add(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
+                    add(MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true))
+                    if (action.allowManualFallback) add(MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false))
+                }
             }
 
             MediaLaunchMode.BACKGROUND_ONLY -> {
-                types == listOf(MediaOperationType.MEDIA_SESSION)
+                listOf(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
             }
 
             MediaLaunchMode.OPEN_PLAYER -> {
-                types.isOrderedSubsequenceOf(buildPlan(action).operations.map(MediaOperation::type))
+                buildPlan(action).operations
             }
         }
-    }
 
-    /** Historical plans may be a persisted prefix/suffix, never a reordered or widened plan. */
-    private fun List<MediaOperationType>.isOrderedSubsequenceOf(expected: List<MediaOperationType>): Boolean {
-        var position = 0
-        return all { type ->
-            val relative = expected.subList(position, expected.size).indexOf(type)
-            if (relative < 0) {
-                false
-            } else {
-                position += relative + 1
-                true
-            }
-        }
-    }
+    private fun expectedEffectKey(
+        checkpoint: MediaExecutionCheckpoint,
+        action: ShortcutAction.PlayMedia,
+        operationId: String,
+    ): String =
+        "${checkpoint.executionId}:${checkpoint.nodeId.value}:${checkpoint.attemptGeneration}:$operationId:${action.targetPackage}:play_from_search:${queryFingerprint(
+            action.searchQuery,
+        )}"
+
+    private fun queryFingerprint(query: String): String =
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(query.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(16)
 
     private fun buildPlan(action: ShortcutAction.PlayMedia): MediaExecutionPlan =
         MediaExecutionPlan(

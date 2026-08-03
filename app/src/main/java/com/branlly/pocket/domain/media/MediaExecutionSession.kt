@@ -169,6 +169,8 @@ data class MediaExecutionCheckpoint(
     val globalDeadlineMillis: Long,
     val state: MediaExecutionState,
     val stateVersion: Int,
+    /** Explicit retry generation; process/service resume keeps this unchanged. */
+    val attemptGeneration: Int = 0,
     val operationId: String?,
     val continuationCreated: Boolean = false,
     val continuationConsumed: Boolean,
@@ -219,6 +221,7 @@ class MediaExecutionSession(
     val plan: MediaExecutionPlan,
     initialState: MediaExecutionState = MediaExecutionState.PRECHECK,
     initialStateVersion: Int = 0,
+    val attemptGeneration: Int = 0,
     initialContinuationCreated: Boolean = false,
     initialContinuationConsumed: Boolean = false,
     initialContinuationKey: String? = null,
@@ -352,7 +355,7 @@ class MediaExecutionSession(
                             it.copy(
                                 dispatchReserved = true,
                                 dispatchFence = MediaDispatchFence.RESERVED,
-                                effectKey = "$executionId:${nodeId.value}:$targetPackage:play_from_search:${searchQuery.hashCode()}",
+                                effectKey = effectKey(operationId),
                             )
                         } else {
                             it
@@ -497,6 +500,7 @@ class MediaExecutionSession(
             globalDeadlineMillis = globalDeadlineMillis,
             state = current.state,
             stateVersion = current.version,
+            attemptGeneration = attemptGeneration,
             operationId = current.operations.firstOrNull { it.status in ACTIVE_OPERATION_STATUSES }?.id,
             continuationCreated = current.continuationCreated,
             continuationConsumed = current.continuationConsumed,
@@ -524,6 +528,16 @@ class MediaExecutionSession(
             if (state.compareAndSet(current, next)) return true
         }
     }
+
+    private fun effectKey(operationId: String): String =
+        "$executionId:${nodeId.value}:$attemptGeneration:$operationId:$targetPackage:play_from_search:${queryFingerprint(searchQuery)}"
+
+    private fun queryFingerprint(query: String): String =
+        java.security.MessageDigest
+            .getInstance("SHA-256")
+            .digest(query.toByteArray(Charsets.UTF_8))
+            .joinToString("") { "%02x".format(it) }
+            .take(16)
 
     private fun terminalState(result: MediaExecutionResult): MediaExecutionState =
         when (result) {
@@ -554,6 +568,7 @@ class MediaExecutionSession(
                 plan = checkpoint.plan,
                 initialState = checkpoint.state,
                 initialStateVersion = checkpoint.stateVersion,
+                attemptGeneration = checkpoint.attemptGeneration,
                 initialContinuationCreated = checkpoint.continuationCreated,
                 initialContinuationConsumed = checkpoint.continuationConsumed,
                 initialContinuationKey = checkpoint.continuationKey,

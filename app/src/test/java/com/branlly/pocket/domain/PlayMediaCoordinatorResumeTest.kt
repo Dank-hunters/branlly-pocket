@@ -443,8 +443,37 @@ class PlayMediaCoordinatorResumeTest {
         continuationKey = if (continuationCreated) "execution:node:${operation.id}:3" else null,
         manualGuidanceShown = manualShown,
         baseline = MediaSessionBaseline(emptySet(), emptySet(), capturedAtMillis = 10),
-        plan = MediaExecutionPlan(listOf(operation)),
+        plan = MediaExecutionPlan(canonicalPlan(operation)),
     )
+
+    private fun canonicalPlan(operation: MediaOperation): List<MediaOperation> =
+        if (operation.type == MediaOperationType.MANUAL_ASSISTANCE) {
+            listOf(
+                MediaOperation(
+                    "media_session",
+                    MediaOperationType.MEDIA_SESSION,
+                    true,
+                    MediaOperationStatus.COMPLETED,
+                    effectApplied = true,
+                    executionCount = 1,
+                ),
+                MediaOperation(
+                    "provider_search",
+                    MediaOperationType.PROVIDER_SEARCH,
+                    true,
+                    MediaOperationStatus.COMPLETED,
+                    effectApplied = true,
+                    executionCount = 1,
+                ),
+                operation,
+            )
+        } else {
+            listOf(
+                operation,
+                MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true),
+                MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false),
+            )
+        }
 
     private fun workflow(checkpoint: MediaExecutionCheckpoint) =
         ActionWorkflowCheckpoint(

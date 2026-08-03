@@ -98,6 +98,45 @@ class MediaExecutionSessionTest {
     }
 
     @Test
+    fun `retry generation creates a distinct deterministic effect key`() {
+        val first =
+            MediaExecutionSession(
+                executionId = "execution",
+                routineId = ShortcutId("routine"),
+                nodeId = NodeId("node"),
+                targetPackage = "target.player",
+                searchQuery = "query",
+                mediaUri = null,
+                selectionPolicy = MediaSelectionPolicy.BEST_PLAYABLE_MATCH,
+                baseline = MediaSessionBaseline(emptySet(), emptySet()),
+                plan = MediaExecutionPlan(listOf(MediaOperation("session", MediaOperationType.MEDIA_SESSION, true))),
+                attemptGeneration = 0,
+                automaticDeadlineMillis = 100,
+                globalDeadlineMillis = 1_000,
+            )
+        val retry =
+            MediaExecutionSession(
+                executionId = "execution",
+                routineId = ShortcutId("routine"),
+                nodeId = NodeId("node"),
+                targetPackage = "target.player",
+                searchQuery = "query",
+                mediaUri = null,
+                selectionPolicy = MediaSelectionPolicy.BEST_PLAYABLE_MATCH,
+                baseline = MediaSessionBaseline(emptySet(), emptySet()),
+                plan = MediaExecutionPlan(listOf(MediaOperation("session", MediaOperationType.MEDIA_SESSION, true))),
+                attemptGeneration = 1,
+                automaticDeadlineMillis = 100,
+                globalDeadlineMillis = 1_000,
+            )
+        assertTrue(first.startOperation("session"))
+        assertTrue(retry.startOperation("session"))
+        assertTrue(first.reserveDispatch("session"))
+        assertTrue(retry.reserveDispatch("session"))
+        assertFalse(first.currentOperation()?.effectKey == retry.currentOperation()?.effectKey)
+    }
+
+    @Test
     fun `continuation creation and consumption are exactly once`() {
         val operation =
             MediaOperation("provider", MediaOperationType.PROVIDER_SEARCH, true, MediaOperationStatus.RUNNING, executionCount = 1)

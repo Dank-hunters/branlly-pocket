@@ -26,6 +26,7 @@ class ShortcutExecutor(
         context: Context,
         registry: ActionRegistry = AndroidActionRegistry.create(context.applicationContext),
     ) : this(registry, AndroidExecutionLogger(context.packageName))
+
     suspend fun execute(
         shortcut: ShortcutDefinition,
         executionId: String = UUID.randomUUID().toString(),
@@ -52,13 +53,14 @@ class ShortcutExecutor(
             logger.log("ACTION_START", fields(executionId, shortcut, node, index))
             val isResumedNode = index == startIndex && userInitiatedNodeId == node.id
             if (node.delayBeforeMillis > 0 && !isResumedNode) delay(node.delayBeforeMillis)
-            val result = try {
-                executeWithStrategy(shortcut, node, executionId, isResumedNode, workflowCheckpoint.takeIf { isResumedNode })
-            } catch (_: CancellationException) {
-                ActionResult.Cancelled()
-            } catch (error: Throwable) {
-                ActionResult.Failed(error.message ?: "Erreur Android inattendue.")
-            }
+            val result =
+                try {
+                    executeWithStrategy(shortcut, node, executionId, isResumedNode, workflowCheckpoint.takeIf { isResumedNode })
+                } catch (_: CancellationException) {
+                    ActionResult.Cancelled()
+                } catch (error: Throwable) {
+                    ActionResult.Failed(error.message ?: "Erreur Android inattendue.")
+                }
             logger.log(
                 "ACTION_RESULT",
                 fields(executionId, shortcut, node, index) + mapOf("result" to result::class.simpleName, "detail" to result),
@@ -74,8 +76,9 @@ class ShortcutExecutor(
                 )
             }
             if (result !is ActionResult.Completed) {
-                val canContinue = node.errorStrategy is ErrorStrategy.Continue &&
-                    (result is ActionResult.Failed || result is ActionResult.TimedOut)
+                val canContinue =
+                    node.errorStrategy is ErrorStrategy.Continue &&
+                        (result is ActionResult.Failed || result is ActionResult.TimedOut)
                 if (!canContinue) {
                     logger.log("ROUTINE_STOPPED", fields(executionId, shortcut, node, index) + mapOf("result" to result))
                     return RoutineExecutionResult.Stopped(node.id, result)
@@ -93,8 +96,17 @@ class ShortcutExecutor(
         userInitiated: Boolean,
         workflowCheckpoint: com.branlly.pocket.domain.workflow.ActionWorkflowCheckpoint?,
     ): ActionResult {
-        suspend fun attempt(): ActionResult {
-            val context = ActionExecutionContext(executionId, shortcut.id, node.id, logger, userInitiated, workflowCheckpoint)
+        suspend fun attempt(retryAttempt: Int): ActionResult {
+            val context =
+                ActionExecutionContext(
+                    executionId = executionId,
+                    routineId = shortcut.id,
+                    nodeId = node.id,
+                    logger = logger,
+                    userInitiated = userInitiated,
+                    workflowCheckpoint = workflowCheckpoint,
+                    retryAttempt = retryAttempt,
+                )
             return if (node.timeoutMillis == null) {
                 registry.execute(node.action, context)
             } else {
@@ -103,7 +115,8 @@ class ShortcutExecutor(
             }
         }
 
-        var result = attempt()
+        var retryAttempt = 0
+        var result = attempt(retryAttempt)
         val retry = node.errorStrategy as? ErrorStrategy.Retry ?: return result
         repeat(retry.attempts - 1) {
             if (result is ActionResult.Completed || result is ActionResult.Cancelled ||
@@ -112,7 +125,8 @@ class ShortcutExecutor(
                 return result
             }
             if (retry.delayMillis > 0) delay(retry.delayMillis)
-            result = attempt()
+            retryAttempt++
+            result = attempt(retryAttempt)
         }
         return result
     }
@@ -153,9 +167,13 @@ sealed interface RoutineExecutionResult {
         val messages: List<String>,
     ) : RoutineExecutionResult
 
-    data class Cancelled(val reason: String) : RoutineExecutionResult
+    data class Cancelled(
+        val reason: String,
+    ) : RoutineExecutionResult
 
-    data class ContinuationRejected(val reason: String) : RoutineExecutionResult
+    data class ContinuationRejected(
+        val reason: String,
+    ) : RoutineExecutionResult
 
     data object AlreadyRunning : RoutineExecutionResult
 }
