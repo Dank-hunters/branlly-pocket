@@ -140,7 +140,20 @@ class PlayMediaCoordinator(
                 session
                     .currentOperation()
                     ?.takeIf { it.status in setOf(MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME) }
-                    ?.let { observer.onOperationDispatched(it.commandedSessionId) }
+                    ?.let { current ->
+                        // Restoration is observation-only. A reacquired current snapshot is a
+                        // fresh baseline and can never prove what happened while Branlly was down.
+                        observer.capturePreDispatchState()
+                        val reacquired =
+                            current.commandedSessionId?.let {
+                                commands.reacquire(action.targetPackage, it)
+                            }
+                        val prepared = reacquired != null && observer.prepareCommandedController(reacquired)
+                        observer.onOperationDispatched(
+                            commandedSessionId = current.commandedSessionId.takeIf { prepared },
+                            commandedController = reacquired.takeIf { prepared },
+                        )
+                    }
                 outcome.getCompletedOrNull()?.let { return@coroutineScope finish(session, it) }
                 when (session.state()) {
                     MediaExecutionState.AWAIT_USER_LAUNCH -> {
@@ -401,25 +414,40 @@ class PlayMediaCoordinator(
         ) {
             return false
         }
-        if (operations
-                .dropWhile {
-                    it.status !in activeOperationStatuses
-                }.drop(1)
-                .any { it.status != MediaOperationStatus.NOT_STARTED }
+        val activeIndex = operations.indexOfFirst { it.status in activeOperationStatuses }
+        val firstPendingIndex = operations.indexOfFirst { it.status == MediaOperationStatus.NOT_STARTED }
+        val boundary =
+            if (activeIndex >= 0) {
+                activeIndex
+            } else if (firstPendingIndex >= 0) {
+                firstPendingIndex
+            } else {
+                operations.size
+            }
+        if (operations.take(boundary).any { it.status !in terminalOperationStatuses }) return false
+        if (activeIndex >= 0 && operations.drop(activeIndex + 1).any { it.status != MediaOperationStatus.NOT_STARTED }) return false
+        if (activeIndex < 0 && firstPendingIndex >= 0 &&
+            operations.drop(firstPendingIndex).any { it.status != MediaOperationStatus.NOT_STARTED }
         ) {
             return false
         }
         val owners = operations.filter { it.dispatchReserved }
         if (owners.size > 1) return false
         val owner = owners.singleOrNull()
+        if (active.any { it.type == MediaOperationType.MEDIA_SESSION && it.executionCount > 0 } && owner == null) return false
         if (owner != null) {
-            if (owner.type != MediaOperationType.MEDIA_SESSION || owner.status !in activeOperationStatuses ||
-                owner.executionCount != 1
-            ) {
+            val ownerStateCoherent =
+                owner.status in activeOperationStatuses ||
+                    (owner.dispatchFence == MediaDispatchFence.TERMINAL_UNCONFIRMED && owner.status in terminalOperationStatuses)
+            if (owner.type != MediaOperationType.MEDIA_SESSION || !ownerStateCoherent || owner.executionCount != 1) return false
+            if (owner.dispatchFence == MediaDispatchFence.OPEN) return false
+            if (owner.effectKey == null) {
+                // Published v0.15.11 checkpoints had no effect key. Only an already
+                // potentially-applied media command may migrate, observation-only.
+                if (owner.dispatchFence != MediaDispatchFence.OBSERVING || !owner.effectApplied) return false
+            } else if (owner.effectKey != expectedEffectKey(checkpoint, action, owner.id)) {
                 return false
             }
-            if (owner.dispatchFence == MediaDispatchFence.OPEN || owner.effectKey.isNullOrBlank()) return false
-            if (owner.effectKey != expectedEffectKey(checkpoint, action, owner.id)) return false
             if (owner.commandedSessionId != null && owner.dispatchFence == MediaDispatchFence.RESERVED) return false
         }
         if (operations.any {
@@ -437,6 +465,8 @@ class PlayMediaCoordinator(
         return true
     }
 
+    private val terminalOperationStatuses =
+        setOf(MediaOperationStatus.COMPLETED, MediaOperationStatus.FAILED, MediaOperationStatus.SKIPPED)
     private val activeOperationStatuses =
         setOf(MediaOperationStatus.RUNNING, MediaOperationStatus.EFFECT_APPLIED, MediaOperationStatus.AWAITING_OUTCOME)
 
@@ -450,34 +480,20 @@ class PlayMediaCoordinator(
                     saved.available == canonical.available
             }
 
-    /** Exact plan emitted by v0.15.11 before URI direct content was checkpointed. */
-    private fun legacyPlan(action: ShortcutAction.PlayMedia): List<MediaOperation> =
-        when (action.launchMode) {
-            MediaLaunchMode.AUTOMATIC -> {
-                buildList {
-                    add(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
-                    add(MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true))
-                    if (action.allowManualFallback) add(MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false))
-                }
-            }
-
-            MediaLaunchMode.BACKGROUND_ONLY -> {
-                listOf(MediaOperation("media_session", MediaOperationType.MEDIA_SESSION, true))
-            }
-
-            MediaLaunchMode.OPEN_PLAYER -> {
-                buildPlan(action).operations
-            }
-        }
+    /** Exact v0.15.11 plan shape; historical checkpoints are never widened during restore. */
+    private fun legacyPlan(action: ShortcutAction.PlayMedia): List<MediaOperation> = buildPlan(action).operations
 
     private fun expectedEffectKey(
         checkpoint: MediaExecutionCheckpoint,
         action: ShortcutAction.PlayMedia,
         operationId: String,
-    ): String =
-        "${checkpoint.executionId}:${checkpoint.nodeId.value}:${checkpoint.attemptGeneration}:$operationId:${action.targetPackage}:play_from_search:${queryFingerprint(
-            action.searchQuery,
+    ): String {
+        val commandType = if (action.mediaUri.isNullOrBlank()) "play_from_search" else "play_from_uri"
+        val request = action.mediaUri?.takeIf(String::isNotBlank) ?: action.searchQuery
+        return "${checkpoint.executionId}:${checkpoint.nodeId.value}:${checkpoint.attemptGeneration}:$operationId:${action.targetPackage}:$commandType:${queryFingerprint(
+            request,
         )}"
+    }
 
     private fun queryFingerprint(query: String): String =
         java.security.MessageDigest
@@ -550,8 +566,9 @@ class PlayMediaCoordinator(
                         // The exact handle is snapshotted and subscribed before the persisted
                         // reservation. The observer only arms post-dispatch evidence later.
                         observer.capturePreDispatchState()
-                        observer.prepareCommandedController(prepared.command.observableController)
-                        if (!session.reserveDispatch(operation.id)) {
+                        if (!observer.prepareCommandedController(prepared.command.observableController)) {
+                            Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
+                        } else if (!session.reserveDispatch(operation.id)) {
                             Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
                         } else if (!context.checkpointPersistence.save(session.checkpoint().toWorkflowCheckpoint())) {
                             context.logger.log(
@@ -738,7 +755,7 @@ class PlayMediaCoordinator(
         workflow: ActionWorkflowCheckpoint,
         context: ActionExecutionContext,
     ): MediaExecutionCheckpoint? {
-        if (workflow.stateKey != CHECKPOINT_STATE || workflow.actionKind != ActionKind.PLAY_MEDIA ||
+        if (workflow.version != 1 || workflow.stateKey != CHECKPOINT_STATE || workflow.actionKind != ActionKind.PLAY_MEDIA ||
             workflow.executionId != context.executionId || workflow.actionId != context.nodeId || workflow.routineId != context.routineId
         ) {
             return null
@@ -770,6 +787,7 @@ class PlayMediaCoordinator(
         val result =
             when (outcome) {
                 is MediaObservedOutcome.PlaybackStarted -> {
+                    session.confirmCurrentDispatch()
                     MediaExecutionResult.Completed(
                         if (outcome.contentConfirmed) {
                             MediaConfirmationLevel.PLAYBACK_AND_CONTENT_CONFIRMED

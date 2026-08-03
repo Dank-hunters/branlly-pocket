@@ -139,31 +139,35 @@ object MediaExecutionCheckpointCodec {
                     repeat(array.length()) { position ->
                         val item = array.getJSONObject(position)
                         require(item.getInt("position") == position)
+                        val type = MediaOperationType.valueOf(item.getString("type"))
+                        val status = MediaOperationStatus.valueOf(item.getString("status"))
+                        val effectApplied = item.optBoolean("effectApplied", false)
+                        val executionCount = item.optInt("executionCount", 0)
+                        val legacyPotentialDispatch =
+                            !item.has("dispatchFence") && type == MediaOperationType.MEDIA_SESSION && executionCount > 0 &&
+                                (effectApplied || status in ACTIVE_OPERATION_STATUSES)
+                        val fence =
+                            runCatching { MediaDispatchFence.valueOf(item.optString("dispatchFence")) }
+                                .getOrElse {
+                                    when {
+                                        legacyPotentialDispatch -> MediaDispatchFence.OBSERVING
+                                        item.optBoolean("dispatchReserved", false) -> MediaDispatchFence.RESERVED
+                                        else -> MediaDispatchFence.OPEN
+                                    }
+                                }
                         add(
                             MediaOperation(
                                 id = item.getString("id"),
-                                type = MediaOperationType.valueOf(item.getString("type")),
+                                type = type,
                                 automatic = item.getBoolean("automatic"),
-                                status = MediaOperationStatus.valueOf(item.getString("status")),
+                                status = status,
                                 available = item.optBoolean("available", true),
-                                effectApplied = item.optBoolean("effectApplied", false),
-                                executionCount = item.optInt("executionCount", 0),
+                                effectApplied = effectApplied || legacyPotentialDispatch,
+                                executionCount = executionCount,
                                 reason = optionalString(item, "reason"),
                                 commandedSessionId = optionalString(item, "commandedSessionId"),
-                                dispatchReserved = item.optBoolean("dispatchReserved", false),
-                                dispatchFence =
-                                    runCatching { MediaDispatchFence.valueOf(item.optString("dispatchFence")) }
-                                        .getOrElse {
-                                            if (item.optBoolean(
-                                                    "dispatchReserved",
-                                                    false,
-                                                )
-                                            ) {
-                                                MediaDispatchFence.RESERVED
-                                            } else {
-                                                MediaDispatchFence.OPEN
-                                            }
-                                        },
+                                dispatchReserved = fence != MediaDispatchFence.OPEN,
+                                dispatchFence = fence,
                                 effectKey = optionalString(item, "effectKey"),
                             ),
                         )

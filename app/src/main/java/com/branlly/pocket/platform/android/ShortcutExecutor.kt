@@ -124,7 +124,9 @@ class ShortcutExecutor(
                     nodeId = node.id,
                     logger = logger,
                     userInitiated = userInitiated,
-                    workflowCheckpoint = workflowCheckpoint,
+                    // A persisted checkpoint belongs only to the original attempt. A real
+                    // ErrorStrategy retry starts a fresh generation and effect fence.
+                    workflowCheckpoint = workflowCheckpoint.takeIf { retryAttempt == 0 },
                     retryAttempt = retryAttempt,
                     checkpointPersistence = checkpointPersistenceFactory(executionId, node.id),
                 )

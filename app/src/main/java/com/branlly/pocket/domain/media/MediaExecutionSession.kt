@@ -314,7 +314,9 @@ class MediaExecutionSession(
                                     when {
                                         status == MediaOperationStatus.AWAITING_OUTCOME && it.dispatchFence == MediaDispatchFence.DISPATCHED -> MediaDispatchFence.OBSERVING
 
-                                        status == MediaOperationStatus.COMPLETED && it.dispatchFence != MediaDispatchFence.OPEN -> MediaDispatchFence.CONFIRMED
+                                        // COMPLETED here means the operation window ended without
+                                        // a proof; only an observed terminal result may confirm.
+                                        status == MediaOperationStatus.COMPLETED && it.dispatchFence != MediaDispatchFence.OPEN -> MediaDispatchFence.TERMINAL_UNCONFIRMED
 
                                         status in setOf(MediaOperationStatus.FAILED, MediaOperationStatus.SKIPPED) &&
                                             it.dispatchFence != MediaDispatchFence.OPEN -> MediaDispatchFence.TERMINAL_UNCONFIRMED
@@ -425,6 +427,22 @@ class MediaExecutionSession(
             )
         }
 
+    fun confirmCurrentDispatch(): Boolean =
+        update { current ->
+            val active =
+                current.operations.singleOrNull {
+                    it.dispatchFence in setOf(MediaDispatchFence.DISPATCHED, MediaDispatchFence.OBSERVING)
+                } ?: return@update null
+            if (active.dispatchFence !in setOf(MediaDispatchFence.DISPATCHED, MediaDispatchFence.OBSERVING)) return@update null
+            current.copy(
+                version = current.version + 1,
+                operations =
+                    current.operations.map {
+                        if (it.id == active.id) it.copy(dispatchFence = MediaDispatchFence.CONFIRMED) else it
+                    },
+            )
+        }
+
     fun recordCommandedSession(
         operationId: String,
         sessionId: String?,
@@ -529,8 +547,11 @@ class MediaExecutionSession(
         }
     }
 
-    private fun effectKey(operationId: String): String =
-        "$executionId:${nodeId.value}:$attemptGeneration:$operationId:$targetPackage:play_from_search:${queryFingerprint(searchQuery)}"
+    private fun effectKey(operationId: String): String {
+        val commandType = if (mediaUri.isNullOrBlank()) "play_from_search" else "play_from_uri"
+        val request = mediaUri?.takeIf(String::isNotBlank) ?: searchQuery
+        return "$executionId:${nodeId.value}:$attemptGeneration:$operationId:$targetPackage:$commandType:${queryFingerprint(request)}"
+    }
 
     private fun queryFingerprint(query: String): String =
         java.security.MessageDigest

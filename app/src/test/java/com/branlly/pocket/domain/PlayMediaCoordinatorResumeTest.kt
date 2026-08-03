@@ -47,27 +47,27 @@ class PlayMediaCoordinatorResumeTest {
     }
 
     @Test
-    fun `playing during suspension completes without replaying pending operation`() =
+    fun `ambiguous historical suspension is rejected without replay`() =
         runBlocking {
             val fixture = Fixture(MediaObservedOutcome.PlaybackStarted("new", false, false))
             val result = fixture.coordinator().execute(action(), context(), workflow(checkpoint(MediaExecutionState.AWAIT_USER_LAUNCH)))
 
-            assertEquals(ActionResult.Completed, result)
+            assertEquals(ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré."), result)
             assertEquals(0, fixture.commandCalls)
             assertEquals(0, fixture.launchCalls)
-            assertEquals(fixture.baseline, fixture.restoredBaseline)
+            assertEquals(null, fixture.restoredBaseline)
         }
 
     @Test
-    fun `pending operation executes once after continuation claim`() =
+    fun `pending historical media command is never dispatched after continuation`() =
         runBlocking {
             val fixture = Fixture()
             fixture.completeOnCommand = true
             val result = fixture.coordinator().execute(action(), context(), workflow(checkpoint(MediaExecutionState.AWAIT_USER_LAUNCH)))
 
-            assertEquals(ActionResult.Completed, result)
-            assertEquals(1, fixture.commandCalls)
-            assertEquals(1, fixture.closeCalls)
+            assertEquals(ActionResult.Failed("Le checkpoint PLAY_MEDIA ne correspond pas au mode de lancement enregistré."), result)
+            assertEquals(0, fixture.commandCalls)
+            assertEquals(0, fixture.closeCalls)
         }
 
     @Test
@@ -207,6 +207,7 @@ class PlayMediaCoordinatorResumeTest {
                     continuationCreated = false,
                     continuationConsumed = false,
                     automaticDeadlineMillis = 100,
+                    launchMode = MediaLaunchMode.BACKGROUND_ONLY,
                 )
 
             val result = fixture.coordinator().execute(action(MediaLaunchMode.BACKGROUND_ONLY), context(), workflow(applied))
@@ -301,9 +302,10 @@ class PlayMediaCoordinatorResumeTest {
                     continuationCreated = false,
                     continuationConsumed = false,
                     automaticDeadlineMillis = 100,
+                    allowManualFallback = false,
                 )
 
-            val result = fixture.coordinator().execute(action(), context(), workflow(applied))
+            val result = fixture.coordinator().execute(action().copy(allowManualFallback = false), context(), workflow(applied))
 
             assertEquals(ActionResult.TimedOut("Aucune opération média restante."), result)
             assertEquals(0, fixture.commandCalls)
@@ -428,6 +430,8 @@ class PlayMediaCoordinatorResumeTest {
         continuationConsumed: Boolean = false,
         manualShown: Boolean = false,
         automaticDeadlineMillis: Long = 500,
+        launchMode: MediaLaunchMode = MediaLaunchMode.AUTOMATIC,
+        allowManualFallback: Boolean = true,
     ) = MediaExecutionCheckpoint(
         executionId = "execution",
         routineId = ShortcutId("routine"),
@@ -443,11 +447,24 @@ class PlayMediaCoordinatorResumeTest {
         continuationKey = if (continuationCreated) "execution:node:${operation.id}:3" else null,
         manualGuidanceShown = manualShown,
         baseline = MediaSessionBaseline(emptySet(), emptySet(), capturedAtMillis = 10),
-        plan = MediaExecutionPlan(canonicalPlan(operation)),
+        plan = MediaExecutionPlan(canonicalPlan(operation, launchMode, allowManualFallback)),
     )
 
-    private fun canonicalPlan(operation: MediaOperation): List<MediaOperation> =
-        if (operation.type == MediaOperationType.MANUAL_ASSISTANCE) {
+    private fun canonicalPlan(
+        operation: MediaOperation,
+        launchMode: MediaLaunchMode,
+        allowManualFallback: Boolean,
+    ): List<MediaOperation> {
+        val normalized =
+            if (operation.type == MediaOperationType.MEDIA_SESSION && operation.effectApplied && !operation.dispatchReserved) {
+                operation.copy(
+                    dispatchReserved = true,
+                    dispatchFence = com.branlly.pocket.domain.media.MediaDispatchFence.OBSERVING,
+                )
+            } else {
+                operation
+            }
+        return if (operation.type == MediaOperationType.MANUAL_ASSISTANCE) {
             listOf(
                 MediaOperation(
                     "media_session",
@@ -467,13 +484,20 @@ class PlayMediaCoordinatorResumeTest {
                 ),
                 operation,
             )
+        } else if (launchMode == MediaLaunchMode.BACKGROUND_ONLY) {
+            listOf(normalized)
         } else {
             listOf(
-                operation,
+                normalized,
                 MediaOperation("provider_search", MediaOperationType.PROVIDER_SEARCH, true),
-                MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false),
-            )
+            ) +
+                if (allowManualFallback) {
+                    listOf(MediaOperation("manual_assistance", MediaOperationType.MANUAL_ASSISTANCE, false))
+                } else {
+                    emptyList()
+                }
         }
+    }
 
     private fun workflow(checkpoint: MediaExecutionCheckpoint) =
         ActionWorkflowCheckpoint(

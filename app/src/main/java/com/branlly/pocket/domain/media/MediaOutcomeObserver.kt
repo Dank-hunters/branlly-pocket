@@ -1,5 +1,35 @@
 package com.branlly.pocket.domain.media
 
+import java.util.concurrent.atomic.AtomicLong
+
+/** Rejects initial and stale controller events until their dispatch epoch is armed. */
+class MediaObservationEpochGate {
+    private val sequence = AtomicLong(0)
+    private val active = AtomicLong(0)
+    private val armed = AtomicLong(0)
+
+    fun begin(): Long =
+        sequence.incrementAndGet().also {
+            active.set(it)
+            armed.set(0)
+        }
+
+    fun arm(epoch: Long): Boolean =
+        if (epoch != 0L && active.get() == epoch) {
+            armed.set(epoch)
+            true
+        } else {
+            false
+        }
+
+    fun accepts(epoch: Long): Boolean = epoch != 0L && active.get() == epoch && armed.get() == epoch
+
+    fun invalidate() {
+        active.set(sequence.incrementAndGet())
+        armed.set(0)
+    }
+}
+
 /** Event source owned by one media session. Implementations never decide the node progression. */
 interface MediaOutcomeObserver : AutoCloseable {
     val baseline: MediaSessionBaseline
@@ -9,8 +39,8 @@ interface MediaOutcomeObserver : AutoCloseable {
     /** Captures the target state immediately before an operation is sent. */
     fun capturePreDispatchState() = Unit
 
-    /** Attaches the exact selected controller before reserving any external command. */
-    fun prepareCommandedController(controller: ObservableMediaController?) = Unit
+    /** Captures and subscribes to the exact controller before reserving an external command. */
+    suspend fun prepareCommandedController(controller: ObservableMediaController?): Boolean = controller == null
 
     /** Records an operation actually dispatched; null means no session-specific correlation is available. */
     fun onOperationDispatched(

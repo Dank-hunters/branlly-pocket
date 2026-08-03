@@ -127,6 +127,12 @@ fun interface MediaSessionCommandGateway {
                 MediaSessionPreparation.Failed(result.reason, result.directFailureReason)
             }
         }
+
+    /** Reacquires an already-commanded active controller for observation only. */
+    fun reacquire(
+        targetPackage: String,
+        sessionId: String,
+    ): ObservableMediaController? = null
 }
 
 sealed interface MediaSessionPreparation {
@@ -255,6 +261,19 @@ class AndroidMediaSessionCommandGateway(
             is MediaSessionPreparation.NotSupported -> MediaSessionCommandResult.NotSupported(prepared.reason, prepared.directFailureReason)
             is MediaSessionPreparation.Failed -> MediaSessionCommandResult.Failed(prepared.reason, prepared.directFailureReason)
         }
+
+    override fun reacquire(
+        targetPackage: String,
+        sessionId: String,
+    ): ObservableMediaController? =
+        runCatching {
+            appContext
+                .getSystemService(MediaSessionManager::class.java)
+                .getActiveSessions(ComponentName(appContext, BranllyMediaListener::class.java))
+                .firstOrNull {
+                    it.packageName == targetPackage && it.sessionToken.hashCode().toString() == sessionId
+                }?.let(::AndroidObservableMediaController)
+        }.getOrNull()
 
     override fun prepare(action: ShortcutAction.PlayMedia): MediaSessionPreparation {
         if (appContext.packageName !in NotificationManagerCompat.getEnabledListenerPackages(appContext) ||

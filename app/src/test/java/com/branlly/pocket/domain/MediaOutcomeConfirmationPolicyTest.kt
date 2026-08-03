@@ -3,11 +3,14 @@ package com.branlly.pocket.domain
 import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
 import com.branlly.pocket.domain.media.MediaBaselineSession
 import com.branlly.pocket.domain.media.MediaContentFingerprint
+import com.branlly.pocket.domain.media.MediaObservationEpochGate
 import com.branlly.pocket.domain.media.MediaObservedSession
 import com.branlly.pocket.domain.media.MediaSessionBaseline
 import com.branlly.pocket.domain.media.confirmDirectPlayback
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class MediaOutcomeConfirmationPolicyTest {
@@ -97,6 +100,23 @@ class MediaOutcomeConfirmationPolicyTest {
                 commandedSessionStillPresent = false,
             ),
         )
+    }
+
+    @Test fun `explicit controller events require the matching armed dispatch epoch`() {
+        val gate = MediaObservationEpochGate()
+        val first = gate.begin()
+        assertFalse(gate.accepts(first))
+        assertTrue(gate.arm(first))
+        assertTrue(gate.accepts(first))
+
+        val second = gate.begin()
+        assertFalse(gate.accepts(first))
+        assertFalse(gate.accepts(second))
+        assertFalse(gate.arm(first))
+        assertTrue(gate.arm(second))
+        assertTrue(gate.accepts(second))
+        gate.invalidate()
+        assertFalse(gate.accepts(second))
     }
 
     private fun MediaSessionBaseline.confirm(

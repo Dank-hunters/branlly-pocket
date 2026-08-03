@@ -14,6 +14,7 @@ import com.branlly.pocket.domain.media.MediaBaselineMetadataState
 import com.branlly.pocket.domain.media.MediaBaselinePlaybackState
 import com.branlly.pocket.domain.media.MediaBaselineSession
 import com.branlly.pocket.domain.media.MediaContentFingerprint
+import com.branlly.pocket.domain.media.MediaObservationEpochGate
 import com.branlly.pocket.domain.media.MediaObservedOutcome
 import com.branlly.pocket.domain.media.MediaObservedSession
 import com.branlly.pocket.domain.media.MediaOutcomeObserver
@@ -24,6 +25,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.resume
 
 /** One event-driven observer for one PLAY_MEDIA session; it owns every registered callback. */
@@ -45,12 +47,15 @@ class AndroidMediaOutcomeObserver(
 
     @Volatile private var commandedController: ObservableMediaController? = null
 
-    /** The first explicit-controller snapshot is a post-acquisition baseline, never evidence. */
-    @Volatile private var commandedControllerObservationArmed = false
+    private val epochGate = MediaObservationEpochGate()
+
+    @Volatile private var activeObservationEpoch = 0L
 
     @Volatile private var inspectSessions: (() -> Unit)? = null
 
-    @Volatile private var attachCommandedController: (() -> Unit)? = null
+    @Volatile private var attachCommandedController: ((Long) -> Boolean)? = null
+
+    @Volatile private var detachCommandedController: (() -> Unit)? = null
 
     @Volatile private var preDispatchSessions: List<MediaBaselineSession>? = null
 
@@ -63,7 +68,9 @@ class AndroidMediaOutcomeObserver(
         operationDispatched = false
         commandedSessionId = null
         commandedController = null
-        commandedControllerObservationArmed = false
+        epochGate.invalidate()
+        activeObservationEpoch = 0L
+        runCatching { detachCommandedController?.invoke() }
         val captured =
             runCatching {
                 manager
@@ -80,20 +87,39 @@ class AndroidMediaOutcomeObserver(
         }
     }
 
-    override fun prepareCommandedController(controller: ObservableMediaController?) {
+    override suspend fun prepareCommandedController(controller: ObservableMediaController?): Boolean {
+        if (controller == null) return true
+        val epoch = epochGate.begin()
+        activeObservationEpoch = epoch
         commandedController = controller
-        commandedControllerObservationArmed = false
-        controller?.snapshot()?.takeIf { it.packageName == targetPackage }?.let { snapshot ->
-            val baselineSession =
-                MediaBaselineSession(
-                    sessionId = snapshot.sessionId,
-                    playbackState = snapshot.playbackState,
-                    content = snapshot.content,
-                )
-            preDispatchSessions =
-                (preDispatchSessions.orEmpty().filterNot { it.sessionId == snapshot.sessionId } + baselineSession)
+        val attached =
+            suspendCancellableCoroutine { continuation ->
+                handler.post {
+                    val value = !closed.get() && attachCommandedController?.invoke(epoch) == true
+                    if (continuation.isActive) continuation.resume(value)
+                }
+            }
+        if (!attached) return false
+        // Snapshot after subscription closes the acquisition race: any earlier event is
+        // intentionally pre-arm, while its resulting state becomes the baseline.
+        val snapshot =
+            runCatching { controller.snapshot() }.getOrNull() ?: run {
+                runCatching { detachCommandedController?.invoke() }
+                return false
+            }
+        if (snapshot.packageName != targetPackage) {
+            runCatching { detachCommandedController?.invoke() }
+            return false
         }
-        handler.post { attachCommandedController?.invoke() }
+        val baselineSession =
+            MediaBaselineSession(
+                sessionId = snapshot.sessionId,
+                playbackState = snapshot.playbackState,
+                content = snapshot.content,
+            )
+        preDispatchSessions =
+            (preDispatchSessions.orEmpty().filterNot { it.sessionId == snapshot.sessionId } + baselineSession)
+        return true
     }
 
     override fun onOperationDispatched(
@@ -102,14 +128,11 @@ class AndroidMediaOutcomeObserver(
     ) {
         this.commandedSessionId = commandedSessionId
         this.commandedController = commandedController
-        commandedControllerObservationArmed = commandedController == null
+        if (commandedController != null) epochGate.arm(activeObservationEpoch)
         operationDispatched = true
         synchronized(unconfirmedSessions) { unconfirmedSessions.clear() }
         Log.i(TAG, "Operation dispatched session=${commandedSessionId ?: "unscoped"}")
-        handler.post {
-            attachCommandedController?.invoke()
-            inspectSessions?.invoke()
-        }
+        handler.post { inspectSessions?.invoke() }
     }
 
     override suspend fun awaitOutcome(timeoutMillis: Long): MediaObservedOutcome {
@@ -125,7 +148,7 @@ class AndroidMediaOutcomeObserver(
         return withTimeoutOrNull(timeoutMillis) {
             suspendCancellableCoroutine { continuation ->
                 val callbacks = ConcurrentHashMap<MediaController, MediaController.Callback>()
-                var commandedSubscription: AutoCloseable? = null
+                val commandedSubscription = AtomicReference<Pair<Long, AutoCloseable>?>(null)
                 lateinit var sessionsListener: MediaSessionManager.OnActiveSessionsChangedListener
                 val finished = AtomicBoolean(false)
 
@@ -133,12 +156,12 @@ class AndroidMediaOutcomeObserver(
                     if (!finished.compareAndSet(false, true)) return
                     callbacks.forEach { (controller, callback) -> runCatching { controller.unregisterCallback(callback) } }
                     callbacks.clear()
-                    runCatching { commandedSubscription?.close() }
-                    commandedSubscription = null
+                    runCatching { commandedSubscription.getAndSet(null)?.second?.close() }
                     runCatching { manager.removeOnActiveSessionsChangedListener(sessionsListener) }
                     cleanup = null
                     inspectSessions = null
                     attachCommandedController = null
+                    detachCommandedController = null
                 }
 
                 fun complete(outcome: MediaObservedOutcome) {
@@ -156,7 +179,13 @@ class AndroidMediaOutcomeObserver(
                     // A controller may have been acquired outside getActiveSessions(). Its
                     // first snapshot can describe pre-existing playback, so never use it as
                     // confirmation until a later callback/snapshot has advanced the epoch.
-                    if (snapshot.sessionId == commandedSessionId && !commandedControllerObservationArmed) return null
+                    if (
+                        snapshot.sessionId == commandedSessionId &&
+                        activeObservationEpoch != 0L &&
+                        !epochGate.accepts(activeObservationEpoch)
+                    ) {
+                        return null
+                    }
                     val proof =
                         baseline.copy(sessions = preDispatchSessions ?: baseline.sessions).confirmDirectPlayback(
                             observed = snapshot,
@@ -204,9 +233,6 @@ class AndroidMediaOutcomeObserver(
                         .firstNotNullOfOrNull { observed(it, currentSessionIds) }
                         ?.let(::complete)
                         ?.also { return }
-                    // The initial explicit snapshot only establishes a local baseline. Any
-                    // later callback is evaluated as post-dispatch evidence.
-                    commandedControllerObservationArmed = true
                     callbacks.filterKeys { it !in targets }.forEach { (controller, callback) ->
                         runCatching { controller.unregisterCallback(callback) }
                         callbacks.remove(controller)
@@ -248,15 +274,38 @@ class AndroidMediaOutcomeObserver(
                         .onSuccess(::observe)
                         .onFailure { complete(MediaObservedOutcome.Unavailable(it.message ?: "Session média indisponible.")) }
                 }
-                attachCommandedController = attachment@{
-                    if (commandedSubscription != null) return@attachment
-                    val controller = commandedController ?: return@attachment
-                    commandedSubscription =
+                detachCommandedController = {
+                    runCatching { commandedSubscription.getAndSet(null)?.second?.close() }
+                }
+                attachCommandedController = attachment@{ epoch ->
+                    val controller = commandedController ?: return@attachment false
+                    runCatching { commandedSubscription.getAndSet(null)?.second?.close() }
+                    val subscription =
                         runCatching {
-                            controller.subscribe { handler.post { inspectSessions?.invoke() } }
+                            controller.subscribe {
+                                // Capture armed state when Android delivers the callback, not
+                                // later when our posted work runs.
+                                val postDispatchEvent = epochGate.accepts(epoch)
+                                handler.post {
+                                    if (postDispatchEvent && !finished.get() && epochGate.accepts(epoch)) {
+                                        inspectSessions?.invoke()
+                                    }
+                                }
+                            }
                         }.onFailure {
                             Log.w(TAG, "Commanded controller callback unavailable", it)
-                        }.getOrNull()
+                        }.getOrNull() ?: return@attachment false
+                    if (finished.get() || activeObservationEpoch != epoch) {
+                        runCatching { subscription.close() }
+                        return@attachment false
+                    }
+                    val installed = epoch to subscription
+                    commandedSubscription.set(installed)
+                    if (finished.get() && commandedSubscription.compareAndSet(installed, null)) {
+                        runCatching { subscription.close() }
+                        return@attachment false
+                    }
+                    true
                 }
                 cleanup = ::dispose
                 continuation.invokeOnCancellation { dispose() }

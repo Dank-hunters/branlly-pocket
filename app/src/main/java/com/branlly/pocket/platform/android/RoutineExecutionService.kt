@@ -62,8 +62,10 @@ class RoutineExecutionService : Service() {
             val store = PersistentRoutineExecutionStateStore(applicationContext)
             val active = store.active(System.currentTimeMillis())
             if (active?.status == com.branlly.pocket.domain.execution.ExecutionStatus.RUNNING &&
-                !executionJobs.contains(active.executionId)
+                !executionJobs.contains(active.executionId) && active.inFlightCheckpoint == null
             ) {
+                // Only executions without a persisted external-effect fence are orphan-cleanable.
+                // A fenced PLAY_MEDIA attempt must remain non-replayable until expiry/recovery.
                 store.finish(active.executionId)
             }
         }
