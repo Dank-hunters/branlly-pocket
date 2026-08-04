@@ -83,6 +83,35 @@ class AndroidMediaSessionCommandPolicyTest {
         assertEquals(1, selection?.index)
     }
 
+    @Test fun `notification candidates reject another package and choose latest compatible stable candidate`() {
+        val selection =
+            selectNotificationMediaSession(
+                candidates =
+                    listOf(
+                        notificationCandidate(0, "other.player", PlaybackState.ACTION_PLAY_FROM_SEARCH, true, 999, "other"),
+                        notificationCandidate(1, "target.player", PlaybackState.ACTION_PLAY_FROM_SEARCH, false, 10, "z"),
+                        notificationCandidate(2, "target.player", PlaybackState.ACTION_PLAY_FROM_SEARCH, false, 20, "b"),
+                        notificationCandidate(3, "target.player", PlaybackState.ACTION_PLAY_FROM_SEARCH, false, 20, "a"),
+                    ),
+                targetPackage = "target.player",
+                hasUri = false,
+                searchQuery = "query",
+            )
+
+        assertEquals(MediaSessionSelection(3, DirectMediaSessionCommand.PLAY_FROM_SEARCH), selection)
+    }
+
+    @Test fun `notification candidate without a compatible command is never selected`() {
+        assertNull(
+            selectNotificationMediaSession(
+                candidates = listOf(notificationCandidate(0, "target.player", PlaybackState.ACTION_PLAY, false, 1, "n")),
+                targetPackage = "target.player",
+                hasUri = false,
+                searchQuery = "query",
+            ),
+        )
+    }
+
     private class RecordingTransport : DirectMediaTransport {
         val calls = mutableListOf<String>()
 
@@ -102,6 +131,15 @@ class AndroidMediaSessionCommandPolicyTest {
             calls += "play"
         }
     }
+
+    private fun notificationCandidate(
+        index: Int,
+        packageName: String,
+        actions: Long,
+        playing: Boolean,
+        postedAtMillis: Long,
+        stableIdentity: String,
+    ) = NotificationMediaSessionSelectionCandidate(index, packageName, actions, playing, postedAtMillis, stableIdentity)
 
     private fun candidate(
         index: Int,

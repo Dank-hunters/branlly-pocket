@@ -1,9 +1,11 @@
 package com.branlly.pocket.platform.android.actions
 
+import android.app.Notification
 import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.media.session.MediaController
+import android.media.session.MediaSession
 import android.media.session.MediaSessionManager
 import android.media.session.PlaybackState
 import android.net.Uri
@@ -151,10 +153,13 @@ sealed interface MediaSessionPreparation {
     ) : MediaSessionPreparation
 }
 
+enum class MediaControllerAcquisitionSource { ACTIVE_SESSIONS, MEDIA_NOTIFICATION }
+
 class PreparedMediaSessionCommand internal constructor(
     val command: String,
     val sessionId: String?,
     val observableController: ObservableMediaController?,
+    val acquisitionSource: MediaControllerAcquisitionSource = MediaControllerAcquisitionSource.ACTIVE_SESSIONS,
     private val dispatchBlock: () -> MediaSessionCommandResult,
 ) {
     fun dispatch(): MediaSessionCommandResult = dispatchBlock()
@@ -178,7 +183,16 @@ internal data class MediaSessionSelection(
     val command: DirectMediaSessionCommand,
 )
 
-internal interface DirectMediaTransport {
+internal data class NotificationMediaSessionSelectionCandidate(
+    val index: Int,
+    val packageName: String,
+    val actions: Long,
+    val playing: Boolean,
+    val postedAtMillis: Long,
+    val stableIdentity: String,
+)
+
+interface DirectMediaTransport {
     fun playFromUri(uri: String)
 
     fun playFromSearch(query: String)
@@ -231,6 +245,29 @@ internal fun selectDirectMediaSession(
         ).firstOrNull()
         ?.second
 
+internal fun selectNotificationMediaSession(
+    candidates: List<NotificationMediaSessionSelectionCandidate>,
+    targetPackage: String,
+    hasUri: Boolean,
+    searchQuery: String,
+): MediaSessionSelection? =
+    candidates
+        .asSequence()
+        .filter { it.packageName == targetPackage }
+        .mapNotNull { candidate ->
+            selectDirectCommand(candidate.actions, hasUri, searchQuery)?.let { command ->
+                candidate to
+                    MediaSessionSelection(candidate.index, command)
+            }
+        }.sortedWith(
+            compareByDescending<Pair<NotificationMediaSessionSelectionCandidate, MediaSessionSelection>> { it.first.playing }
+                .thenBy { it.second.command.ordinal }
+                .thenByDescending { it.first.postedAtMillis }
+                .thenBy { it.first.stableIdentity }
+                .thenBy { it.first.index },
+        ).firstOrNull()
+        ?.second
+
 internal fun selectDirectCommand(
     actions: Long,
     hasUri: Boolean,
@@ -250,8 +287,91 @@ internal fun selectDirectCommand(
 
 private infix fun Long.supports(action: Long): Boolean = this and action != 0L
 
+private data class AcquiredMediaController(
+    val controller: MediaController,
+    val source: MediaControllerAcquisitionSource,
+    val notificationPostedAtMillis: Long = 0L,
+    val stableIdentity: String = "",
+)
+
+/** Narrow Android-adapter port: no notification or token reaches the coordinator/domain. */
+interface NotificationMediaSessionSource {
+    fun lookup(targetPackage: String): NotificationMediaSessionLookup
+}
+
+data class NotificationMediaSessionLookup(
+    val candidates: List<NotificationMediaSessionCandidate>,
+    val rejection: DirectMediaFailureReason,
+)
+
+data class NotificationMediaSessionCandidate(
+    val observableController: ObservableMediaController,
+    val actions: Long,
+    val playing: Boolean,
+    val postedAtMillis: Long,
+    val stableIdentity: String,
+    val transport: DirectMediaTransport,
+)
+
+private class AndroidNotificationMediaSessionSource(
+    context: Context,
+) : NotificationMediaSessionSource {
+    private val appContext = context.applicationContext
+
+    @Suppress("DEPRECATION")
+    override fun lookup(targetPackage: String): NotificationMediaSessionLookup {
+        val notifications =
+            BranllyMediaListener.activeNotificationsSnapshot()
+                ?: return NotificationMediaSessionLookup(emptyList(), DirectMediaFailureReason.NOTIFICATION_LISTENER_DISCONNECTED)
+        val target = notifications.filter { it.packageName == targetPackage }
+        if (target.isEmpty()) return NotificationMediaSessionLookup(emptyList(), DirectMediaFailureReason.NO_TARGET_MEDIA_NOTIFICATION)
+        var rejection = DirectMediaFailureReason.MEDIA_NOTIFICATION_WITHOUT_SESSION_TOKEN
+        val candidates =
+            target
+                .mapNotNull { notification ->
+                    val token =
+                        notification.notification.extras
+                            ?.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
+                            ?: return@mapNotNull null
+                    val controller =
+                        runCatching { MediaController(appContext, token) }.getOrElse {
+                            rejection = DirectMediaFailureReason.INVALID_NOTIFICATION_SESSION_TOKEN
+                            return@mapNotNull null
+                        }
+                    if (controller.packageName != targetPackage) {
+                        rejection = DirectMediaFailureReason.NOTIFICATION_SESSION_PACKAGE_MISMATCH
+                        return@mapNotNull null
+                    }
+                    val controls = controller.transportControls
+                    NotificationMediaSessionCandidate(
+                        observableController = AndroidObservableMediaController(controller),
+                        actions = controller.playbackState?.actions ?: 0L,
+                        playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING,
+                        postedAtMillis = notification.postTime,
+                        stableIdentity = notification.key,
+                        transport =
+                            object : DirectMediaTransport {
+                                override fun playFromUri(uri: String) = controls.playFromUri(Uri.parse(uri), Bundle.EMPTY)
+
+                                override fun playFromSearch(query: String) = controls.playFromSearch(query, Bundle.EMPTY)
+
+                                override fun prepareFromSearch(query: String) = controls.prepareFromSearch(query, Bundle.EMPTY)
+
+                                override fun play() = controls.play()
+                            },
+                    )
+                }.sortedWith(
+                    compareByDescending<NotificationMediaSessionCandidate> { it.playing }
+                        .thenByDescending { it.postedAtMillis }
+                        .thenBy { it.stableIdentity },
+                )
+        return NotificationMediaSessionLookup(candidates, rejection)
+    }
+}
+
 class AndroidMediaSessionCommandGateway(
     context: Context,
+    private val notificationSessions: NotificationMediaSessionSource = AndroidNotificationMediaSessionSource(context),
 ) : MediaSessionCommandGateway {
     private val appContext = context.applicationContext
 
@@ -266,74 +386,80 @@ class AndroidMediaSessionCommandGateway(
         targetPackage: String,
         sessionId: String,
     ): ObservableMediaController? =
+        activeControllers()
+            .firstOrNull {
+                it.packageName == targetPackage && AndroidObservableMediaController(it).sessionId == sessionId
+            }?.let(::AndroidObservableMediaController)
+            ?: notificationSessions
+                .lookup(targetPackage)
+                .candidates
+                .firstOrNull {
+                    it.observableController.packageName == targetPackage && it.observableController.sessionId == sessionId
+                }?.observableController
+
+    override fun prepare(action: ShortcutAction.PlayMedia): MediaSessionPreparation {
+        if (appContext.packageName !in NotificationManagerCompat.getEnabledListenerPackages(appContext)) {
+            return MediaSessionPreparation.Failed(
+                "L’accès aux notifications n’est pas autorisé.",
+                DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
+            )
+        }
+        if (!BranllyMediaListener.isConnected()) {
+            return MediaSessionPreparation.Failed(
+                "Le service de notifications multimédias est indisponible.",
+                DirectMediaFailureReason.NOTIFICATION_LISTENER_DISCONNECTED,
+            )
+        }
+
+        // Active sessions retain priority. Notification tokens are only an acquisition fallback
+        // before reservation; they never create a second dispatch path.
+        val active = activeControllers()
+        prepareFromCandidates(action, active.map { AcquiredMediaController(it, MediaControllerAcquisitionSource.ACTIVE_SESSIONS) })
+            ?.let { return it }
+        val notifications = notificationSessions.lookup(action.targetPackage)
+        prepareFromNotificationCandidates(action, notifications.candidates)?.let { return it }
+
+        val reason =
+            when {
+                active.any { it.packageName == action.targetPackage } -> DirectMediaFailureReason.COMMAND_NOT_SUPPORTED
+                notifications.candidates.isEmpty() -> notifications.rejection
+                else -> DirectMediaFailureReason.NOTIFICATION_SESSION_COMMAND_NOT_SUPPORTED
+            }
+        return MediaSessionPreparation.NotSupported(reason.userMessage, reason)
+    }
+
+    private fun activeControllers(): List<MediaController> =
         runCatching {
             appContext
                 .getSystemService(MediaSessionManager::class.java)
                 .getActiveSessions(ComponentName(appContext, BranllyMediaListener::class.java))
-                .firstOrNull {
-                    it.packageName == targetPackage && it.sessionToken.hashCode().toString() == sessionId
-                }?.let(::AndroidObservableMediaController)
-        }.getOrNull()
+        }.getOrElse {
+            Log.w(TAG, "Accès MediaSession refusé", it)
+            emptyList()
+        }
 
-    override fun prepare(action: ShortcutAction.PlayMedia): MediaSessionPreparation {
-        if (appContext.packageName !in NotificationManagerCompat.getEnabledListenerPackages(appContext) ||
-            !BranllyMediaListener.isConnected()
-        ) {
-            Log.w(TAG, "MediaSession indisponible: listener non autorisé ou déconnecté")
-            return MediaSessionPreparation.Failed(
-                "Le service MediaSession n’est pas disponible.",
-                DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
-            )
-        }
-        val controllers =
-            runCatching {
-                appContext
-                    .getSystemService(MediaSessionManager::class.java)
-                    .getActiveSessions(ComponentName(appContext, BranllyMediaListener::class.java))
-            }.getOrElse {
-                Log.w(TAG, "Accès MediaSession refusé", it)
-                return MediaSessionPreparation.Failed(
-                    it.message ?: "Accès MediaSession refusé.",
-                    DirectMediaFailureReason.MEDIA_SESSION_ACCESS_UNAVAILABLE,
-                )
-            }
-        val exactControllers = controllers.filter { it.packageName == action.targetPackage }
-        if (exactControllers.isEmpty()) {
-            Log.i(TAG, "Aucune session du package cible: ${action.targetPackage}")
-            return MediaSessionPreparation.NotSupported("Aucune session du package cible.", DirectMediaFailureReason.NO_TARGET_SESSION)
-        }
-        exactControllers.forEach { controller ->
-            val actions = controller.playbackState?.actions ?: 0L
-            Log.i(
-                TAG,
-                "Session trouvée package=${controller.packageName} " +
-                    "playFromSearch=${actions supports PlaybackState.ACTION_PLAY_FROM_SEARCH} " +
-                    "prepareFromSearch=${actions supports PlaybackState.ACTION_PREPARE_FROM_SEARCH} " +
-                    "play=${actions supports PlaybackState.ACTION_PLAY}",
-            )
-        }
+    private fun prepareFromCandidates(
+        action: ShortcutAction.PlayMedia,
+        candidates: List<AcquiredMediaController>,
+    ): MediaSessionPreparation.Ready? {
+        val exact = candidates.filter { it.controller.packageName == action.targetPackage }
         val selection =
             selectDirectMediaSession(
                 candidates =
-                    controllers.mapIndexed { index, controller ->
+                    exact.mapIndexed { index, candidate ->
                         MediaSessionCandidate(
                             index = index,
-                            packageName = controller.packageName,
-                            actions = controller.playbackState?.actions ?: 0L,
-                            playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING,
+                            packageName = candidate.controller.packageName,
+                            actions = candidate.controller.playbackState?.actions ?: 0L,
+                            playing = candidate.controller.playbackState?.state == PlaybackState.STATE_PLAYING,
                         )
                     },
                 targetPackage = action.targetPackage,
                 hasUri = !action.mediaUri.isNullOrBlank(),
                 searchQuery = action.searchQuery,
-            ) ?: run {
-                Log.i(TAG, "Session cible sans commande de recherche compatible")
-                return MediaSessionPreparation.NotSupported(
-                    "La session n’annonce aucune commande compatible.",
-                    DirectMediaFailureReason.COMMAND_NOT_SUPPORTED,
-                )
-            }
-        val controls = controllers[selection.index].transportControls
+            ) ?: return null
+        val acquired = exact[selection.index]
+        val controls = acquired.controller.transportControls
         val transport =
             object : DirectMediaTransport {
                 override fun playFromUri(uri: String) = controls.playFromUri(Uri.parse(uri), Bundle.EMPTY)
@@ -344,20 +470,62 @@ class AndroidMediaSessionCommandGateway(
 
                 override fun play() = controls.play()
             }
-        val controller = controllers[selection.index]
-        val observable = AndroidObservableMediaController(controller)
+        val observable = AndroidObservableMediaController(acquired.controller)
         return MediaSessionPreparation.Ready(
             PreparedMediaSessionCommand(
                 command = selection.command.name,
                 sessionId = observable.sessionId,
                 observableController = observable,
+                acquisitionSource = acquired.source,
             ) {
                 runCatching {
                     val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, transport)
-                    Log.i(TAG, "$sent envoyé package=${action.targetPackage}")
+                    Log.i(TAG, "$sent envoyé source=${acquired.source} package=${action.targetPackage}")
                     MediaSessionCommandResult.Sent(sent, observable.sessionId, observable)
                 }.getOrElse {
                     Log.w(TAG, "Commande MediaSession refusée", it)
+                    MediaSessionCommandResult.Failed(
+                        it.message ?: "Commande MediaSession refusée.",
+                        DirectMediaFailureReason.COMMAND_EXCEPTION,
+                    )
+                }
+            },
+        )
+    }
+
+    private fun prepareFromNotificationCandidates(
+        action: ShortcutAction.PlayMedia,
+        candidates: List<NotificationMediaSessionCandidate>,
+    ): MediaSessionPreparation.Ready? {
+        val selection =
+            selectNotificationMediaSession(
+                candidates =
+                    candidates.mapIndexed { index, candidate ->
+                        NotificationMediaSessionSelectionCandidate(
+                            index = index,
+                            packageName = candidate.observableController.packageName,
+                            actions = candidate.actions,
+                            playing = candidate.playing,
+                            postedAtMillis = candidate.postedAtMillis,
+                            stableIdentity = candidate.stableIdentity,
+                        )
+                    },
+                targetPackage = action.targetPackage,
+                hasUri = !action.mediaUri.isNullOrBlank(),
+                searchQuery = action.searchQuery,
+            ) ?: return null
+        val candidate = candidates[selection.index]
+        return MediaSessionPreparation.Ready(
+            PreparedMediaSessionCommand(
+                command = selection.command.name,
+                sessionId = candidate.observableController.sessionId,
+                observableController = candidate.observableController,
+                acquisitionSource = MediaControllerAcquisitionSource.MEDIA_NOTIFICATION,
+            ) {
+                runCatching {
+                    val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, candidate.transport)
+                    MediaSessionCommandResult.Sent(sent, candidate.observableController.sessionId, candidate.observableController)
+                }.getOrElse {
                     MediaSessionCommandResult.Failed(
                         it.message ?: "Commande MediaSession refusée.",
                         DirectMediaFailureReason.COMMAND_EXCEPTION,

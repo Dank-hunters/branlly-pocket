@@ -34,6 +34,12 @@ enum class DirectMediaFailureReason(
     COMMAND_REJECTED("La commande multimédia a été refusée."),
     COMMAND_EXCEPTION("La commande multimédia a rencontré une erreur."),
     MEDIA_SESSION_ACCESS_UNAVAILABLE("L’accès aux sessions multimédias est indisponible."),
+    NOTIFICATION_LISTENER_DISCONNECTED("Le service de notifications multimédias est indisponible."),
+    NO_TARGET_MEDIA_NOTIFICATION("Aucune notification multimédia du lecteur n’a été trouvée."),
+    MEDIA_NOTIFICATION_WITHOUT_SESSION_TOKEN("La notification multimédia ne fournit pas de session utilisable."),
+    INVALID_NOTIFICATION_SESSION_TOKEN("Le token de session de la notification est invalide."),
+    NOTIFICATION_SESSION_PACKAGE_MISMATCH("La session de notification ne correspond pas au lecteur ciblé."),
+    NOTIFICATION_SESSION_COMMAND_NOT_SUPPORTED("La session de notification ne prend pas en charge cette commande."),
     PLAYBACK_NOT_CONFIRMED("La lecture n’a pas été confirmée dans le délai prévu."),
     UNKNOWN_DIRECT_FAILURE("La lecture directe n’a pas pu être utilisée."),
 }
@@ -565,6 +571,10 @@ class PlayMediaCoordinator(
                     is MediaSessionPreparation.Ready -> {
                         // The exact handle is snapshotted and subscribed before the persisted
                         // reservation. The observer only arms post-dispatch evidence later.
+                        context.logger.log(
+                            "PLAY_MEDIA_CONTROLLER_ACQUIRED",
+                            mapOf("source" to prepared.command.acquisitionSource.name, "nodeId" to context.nodeId.value),
+                        )
                         observer.capturePreDispatchState()
                         if (!observer.prepareCommandedController(prepared.command.observableController)) {
                             Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
