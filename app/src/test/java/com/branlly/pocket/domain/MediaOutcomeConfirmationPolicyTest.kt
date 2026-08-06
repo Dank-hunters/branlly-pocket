@@ -53,6 +53,23 @@ class MediaOutcomeConfirmationPolicyTest {
         assertNull(baseline().confirm(observed("new", MediaBaselinePlaybackState.PLAYING, packageName = "other.player"), null))
     }
 
+    @Test fun `delegated commanded session confirms only when explicitly allowed`() {
+        val baseline = baseline(session("delegated", MediaBaselinePlaybackState.PAUSED))
+        val delegated = observed("delegated", MediaBaselinePlaybackState.PLAYING, packageName = "session.owner")
+        assertNull(baseline.confirm(delegated, "delegated"))
+        assertEquals(
+            "commanded_session_started",
+            baseline.confirmDirectPlayback(
+                observed = delegated,
+                targetPackage = "target.player",
+                commandedSessionId = "delegated",
+                commandDispatched = true,
+                commandedSessionStillPresent = true,
+                allowCommandedSessionPackageMismatch = true,
+            ),
+        )
+    }
+
     @Test fun `other preexisting target session cannot confirm a commanded session`() {
         val baseline =
             baseline(

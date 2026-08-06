@@ -59,6 +59,10 @@ interface ObservableMediaController {
     val sessionId: String
     val packageName: String
 
+    /** True only for an exact token delegated by an active target-package notification. */
+    val allowsTargetPackageMismatch: Boolean
+        get() = false
+
     fun snapshot(): MediaObservedSession?
 
     /** Registers a change listener and returns an idempotent subscription cleanup. */

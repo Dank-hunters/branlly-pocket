@@ -112,8 +112,13 @@ fun MediaSessionBaseline.confirmDirectPlayback(
     commandedSessionId: String?,
     commandDispatched: Boolean,
     commandedSessionStillPresent: Boolean,
+    allowCommandedSessionPackageMismatch: Boolean = false,
 ): String? {
-    if (!commandDispatched || observed.packageName != targetPackage ||
+    if (!commandDispatched ||
+        (
+            observed.packageName != targetPackage &&
+                !(allowCommandedSessionPackageMismatch && observed.sessionId == commandedSessionId)
+        ) ||
         observed.playbackState != MediaBaselinePlaybackState.PLAYING
     ) {
         return null

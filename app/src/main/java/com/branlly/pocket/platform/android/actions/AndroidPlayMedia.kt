@@ -160,6 +160,8 @@ class PreparedMediaSessionCommand internal constructor(
     val sessionId: String?,
     val observableController: ObservableMediaController?,
     val acquisitionSource: MediaControllerAcquisitionSource = MediaControllerAcquisitionSource.ACTIVE_SESSIONS,
+    /** Must succeed immediately before the coordinator reserves the external effect. */
+    val validateBeforeDispatch: () -> DirectMediaFailureReason? = { null },
     private val dispatchBlock: () -> MediaSessionCommandResult,
 ) {
     fun dispatch(): MediaSessionCommandResult = dispatchBlock()
@@ -310,6 +312,9 @@ data class NotificationMediaSessionCandidate(
     val playing: Boolean,
     val postedAtMillis: Long,
     val stableIdentity: String,
+    val notificationPackage: String,
+    val sessionOwnerPackage: String,
+    val revalidate: () -> DirectMediaFailureReason? = { null },
     val transport: DirectMediaTransport,
 )
 
@@ -338,17 +343,29 @@ private class AndroidNotificationMediaSessionSource(
                             rejection = DirectMediaFailureReason.INVALID_NOTIFICATION_SESSION_TOKEN
                             return@mapNotNull null
                         }
-                    if (controller.packageName != targetPackage) {
-                        rejection = DirectMediaFailureReason.NOTIFICATION_SESSION_PACKAGE_MISMATCH
-                        return@mapNotNull null
-                    }
+                    val sessionOwnerPackage = controller.packageName
+                    val delegated = sessionOwnerPackage != targetPackage
                     val controls = controller.transportControls
                     NotificationMediaSessionCandidate(
-                        observableController = AndroidObservableMediaController(controller),
+                        observableController = AndroidObservableMediaController(controller, delegated),
                         actions = controller.playbackState?.actions ?: 0L,
                         playing = controller.playbackState?.state == PlaybackState.STATE_PLAYING,
                         postedAtMillis = notification.postTime,
                         stableIdentity = notification.key,
+                        notificationPackage = notification.packageName,
+                        sessionOwnerPackage = sessionOwnerPackage,
+                        revalidate = {
+                            val current =
+                                BranllyMediaListener
+                                    .activeNotificationsSnapshot()
+                                    ?.firstOrNull { it.key == notification.key && it.packageName == targetPackage }
+                                    ?: return@NotificationMediaSessionCandidate DirectMediaFailureReason.NOTIFICATION_DISAPPEARED_BEFORE_DISPATCH
+                            val currentToken =
+                                current.notification.extras
+                                    ?.getParcelable<MediaSession.Token>(Notification.EXTRA_MEDIA_SESSION)
+                                    ?: return@NotificationMediaSessionCandidate DirectMediaFailureReason.NOTIFICATION_TOKEN_CHANGED
+                            if (currentToken != token) DirectMediaFailureReason.NOTIFICATION_TOKEN_CHANGED else null
+                        },
                         transport =
                             object : DirectMediaTransport {
                                 override fun playFromUri(uri: String) = controls.playFromUri(Uri.parse(uri), Bundle.EMPTY)
@@ -521,6 +538,7 @@ class AndroidMediaSessionCommandGateway(
                 sessionId = candidate.observableController.sessionId,
                 observableController = candidate.observableController,
                 acquisitionSource = MediaControllerAcquisitionSource.MEDIA_NOTIFICATION,
+                validateBeforeDispatch = candidate.revalidate,
             ) {
                 runCatching {
                     val sent = dispatchDirectMediaCommand(selection.command, action.mediaUri, action.searchQuery, candidate.transport)
@@ -542,6 +560,7 @@ class AndroidMediaSessionCommandGateway(
 
 private class AndroidObservableMediaController(
     private val controller: MediaController,
+    override val allowsTargetPackageMismatch: Boolean = false,
 ) : ObservableMediaController {
     override val sessionId: String = controller.sessionToken.hashCode().toString()
     override val packageName: String = controller.packageName

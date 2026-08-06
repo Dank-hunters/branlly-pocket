@@ -38,7 +38,9 @@ enum class DirectMediaFailureReason(
     NO_TARGET_MEDIA_NOTIFICATION("Aucune notification multimédia du lecteur n’a été trouvée."),
     MEDIA_NOTIFICATION_WITHOUT_SESSION_TOKEN("La notification multimédia ne fournit pas de session utilisable."),
     INVALID_NOTIFICATION_SESSION_TOKEN("Le token de session de la notification est invalide."),
-    NOTIFICATION_SESSION_PACKAGE_MISMATCH("La session de notification ne correspond pas au lecteur ciblé."),
+    NOTIFICATION_SESSION_PACKAGE_MISMATCH("La provenance de la session de notification est insuffisante."),
+    NOTIFICATION_DISAPPEARED_BEFORE_DISPATCH("La notification multimédia a disparu avant la commande."),
+    NOTIFICATION_TOKEN_CHANGED("Le token de la notification a changé avant la commande."),
     NOTIFICATION_SESSION_COMMAND_NOT_SUPPORTED("La session de notification ne prend pas en charge cette commande."),
     PLAYBACK_NOT_CONFIRMED("La lecture n’a pas été confirmée dans le délai prévu."),
     UNKNOWN_DIRECT_FAILURE("La lecture directe n’a pas pu être utilisée."),
@@ -576,8 +578,13 @@ class PlayMediaCoordinator(
                             mapOf("source" to prepared.command.acquisitionSource.name, "nodeId" to context.nodeId.value),
                         )
                         observer.capturePreDispatchState()
+                        val provenanceFailure = prepared.command.validateBeforeDispatch()
                         if (!observer.prepareCommandedController(prepared.command.observableController)) {
                             Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
+                        } else if (provenanceFailure != null) {
+                            // Notification provenance is ephemeral; failure here is before the
+                            // fence, so no external command has been authorized.
+                            Attempt.Failed(provenanceFailure)
                         } else if (!session.reserveDispatch(operation.id)) {
                             Attempt.Failed(DirectMediaFailureReason.COMMAND_EXCEPTION)
                         } else if (!context.checkpointPersistence.save(session.checkpoint().toWorkflowCheckpoint())) {

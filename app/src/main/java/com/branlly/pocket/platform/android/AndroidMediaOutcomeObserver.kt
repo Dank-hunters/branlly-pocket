@@ -107,7 +107,7 @@ class AndroidMediaOutcomeObserver(
                 runCatching { detachCommandedController?.invoke() }
                 return false
             }
-        if (snapshot.packageName != targetPackage) {
+        if (snapshot.packageName != targetPackage && !controller.allowsTargetPackageMismatch) {
             runCatching { detachCommandedController?.invoke() }
             return false
         }
@@ -193,6 +193,7 @@ class AndroidMediaOutcomeObserver(
                             commandedSessionId = commandedSessionId,
                             commandDispatched = operationDispatched,
                             commandedSessionStillPresent = commandedSessionId in currentSessionIds,
+                            allowCommandedSessionPackageMismatch = commandedController?.allowsTargetPackageMismatch == true,
                         )
                     if (proof == null) {
                         if (operationDispatched && snapshot.playbackState == MediaBaselinePlaybackState.PLAYING &&
@@ -225,10 +226,14 @@ class AndroidMediaOutcomeObserver(
                                     content = it.contentFingerprint(),
                                 )
                             }.toMutableList()
-                    commandedController?.snapshot()?.takeIf { it.packageName == targetPackage }?.let { snapshot ->
-                        currentSessionIds += snapshot.sessionId
-                        if (snapshots.none { it.sessionId == snapshot.sessionId }) snapshots += snapshot
-                    }
+                    commandedController
+                        ?.snapshot()
+                        ?.takeIf {
+                            it.packageName == targetPackage || commandedController?.allowsTargetPackageMismatch == true
+                        }?.let { snapshot ->
+                            currentSessionIds += snapshot.sessionId
+                            if (snapshots.none { it.sessionId == snapshot.sessionId }) snapshots += snapshot
+                        }
                     snapshots
                         .firstNotNullOfOrNull { observed(it, currentSessionIds) }
                         ?.let(::complete)
